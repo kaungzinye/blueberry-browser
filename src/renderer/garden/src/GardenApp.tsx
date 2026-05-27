@@ -1,21 +1,32 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Archive,
   Bot,
   CheckCircle2,
   ChevronDown,
+  FastForward,
   FileDown,
   FileSpreadsheet,
+  FileText,
   Globe2,
   Play,
   Search,
   Sparkles,
 } from "lucide-react";
 import {
+  IntelLedgerOverlay,
+  IntelLedgerStrip,
+} from "./components/IntelLedger";
+import {
+  advanceWorkRun,
   approveWorkRun,
   Berry,
+  completeWorkRun,
   createInitialGardenState,
   GardenState,
+  getLedgerEntries,
+  getVisibleBerries,
+  showBerryOnGarden,
   submitCommand,
 } from "./domain/gardenDomain";
 
@@ -27,6 +38,7 @@ const berryIcon = {
   sheet: FileSpreadsheet,
   xlsx: FileDown,
   lead: Sparkles,
+  report: FileText,
   "work-run": Archive,
 };
 
@@ -36,21 +48,40 @@ export const GardenApp: React.FC = () => {
   );
   const [commandText, setCommandText] = useState(DEMO_COMMAND);
   const [selectedBerryId, setSelectedBerryId] = useState<string | null>(null);
+  const [ledgerOpen, setLedgerOpen] = useState(false);
   const plannedWorkRun = state.workRuns.find((run) => run.status === "planning");
   const runningWorkRun = state.workRuns.find((run) => run.status === "running");
+  const completedWorkRun = state.workRuns.find((run) => run.status === "complete");
   const mainAgent = state.agents[0];
+  const visibleBerries = getVisibleBerries(state);
+  const ledgerEntries = getLedgerEntries(state);
   const selectedBerry = state.berries.find((berry) => berry.id === selectedBerryId);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "i") {
+        event.preventDefault();
+        setLedgerOpen((open) => !open);
+      }
+      if (event.key === "Escape" && ledgerOpen) {
+        setLedgerOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [ledgerOpen]);
+
   const agentPosition = useMemo(() => {
-    if (!state.berries.length) return { x: 440, y: 310 };
+    if (!visibleBerries.length) return { x: 440, y: 310 };
     const target =
-      state.berries.find((berry) => berry.status === "reading") ??
-      state.berries[0];
+      visibleBerries.find((berry) => berry.status === "reading") ??
+      visibleBerries[0];
     return {
       x: target.x + target.width - 22,
       y: target.y + target.height + 22,
     };
-  }, [state.berries]);
+  }, [visibleBerries]);
 
   const handleSubmit = (event: React.FormEvent): void => {
     event.preventDefault();
@@ -68,6 +99,23 @@ export const GardenApp: React.FC = () => {
     window.gardenAPI?.openUrl(berry.url);
   };
 
+  const handleAdvanceWorkRun = (): void => {
+    if (!runningWorkRun) return;
+    setState((current) => advanceWorkRun(current, runningWorkRun.id));
+  };
+
+  const handleCompleteWorkRun = (): void => {
+    const target = runningWorkRun ?? completedWorkRun;
+    if (!target) return;
+    setState((current) => completeWorkRun(current, target.id));
+  };
+
+  const handleShowOnGarden = (berryId: string): void => {
+    setState((current) => showBerryOnGarden(current, berryId));
+    setSelectedBerryId(berryId);
+    setLedgerOpen(false);
+  };
+
   return (
     <main className="relative h-full w-full overflow-hidden bg-[#031633] text-slate-100">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_18%,rgba(69,130,255,0.25),transparent_28%),radial-gradient(circle_at_80%_30%,rgba(54,211,153,0.12),transparent_24%),linear-gradient(135deg,#031633_0%,#061b3d_45%,#020817_100%)]" />
@@ -79,7 +127,7 @@ export const GardenApp: React.FC = () => {
             B
           </div>
           <div className="space-y-2">
-            {state.berries
+            {visibleBerries
               .filter((berry) => berry.kind === "tab")
               .map((berry) => (
                 <button
@@ -108,7 +156,7 @@ export const GardenApp: React.FC = () => {
           </header>
 
           <GardenWorld
-            berries={state.berries}
+            berries={visibleBerries}
             selectedBerryId={selectedBerryId}
             agentPosition={agentPosition}
             agentLabel={mainAgent?.currentLabel ?? "Ready for browser work"}
@@ -126,6 +174,11 @@ export const GardenApp: React.FC = () => {
           {!state.commands.length && <EmptyGarden />}
 
           <footer className="z-20 border-t border-white/10 bg-slate-950/60 px-5 py-4 backdrop-blur-xl">
+            <IntelLedgerStrip
+              entries={ledgerEntries}
+              expanded={ledgerOpen}
+              onToggle={() => setLedgerOpen((open) => !open)}
+            />
             <div className="mb-3 flex items-center justify-between gap-4 text-sm text-slate-300">
               <div className="flex min-w-0 items-center gap-3">
                 <Bot className="size-4 text-blue-200" />
@@ -138,14 +191,41 @@ export const GardenApp: React.FC = () => {
                 {runningWorkRun ? (
                   <>
                     <span>Visible telemetry on</span>
-                    <span>{state.berries.length} Berries</span>
+                    <span>{visibleBerries.length} on map</span>
+                    <span>{ledgerEntries.length} in ledger</span>
                     <span>{state.telemetry.length} trace events</span>
                   </>
+                ) : completedWorkRun ? (
+                  <span>Work Run complete. Sources tucked into ledger.</span>
                 ) : (
                   <span>Simple commands stay compact. Work commands grow here.</span>
                 )}
               </div>
             </div>
+
+            {(runningWorkRun || completedWorkRun) && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {runningWorkRun && (
+                  <button
+                    type="button"
+                    onClick={handleAdvanceWorkRun}
+                    className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sm text-slate-100 hover:bg-white/15"
+                  >
+                    <FastForward className="size-4" />
+                    Advance work
+                  </button>
+                )}
+                {runningWorkRun && (
+                  <button
+                    type="button"
+                    onClick={handleCompleteWorkRun}
+                    className="rounded-2xl border border-emerald-300/20 bg-emerald-300/15 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-300/25"
+                  >
+                    Complete run
+                  </button>
+                )}
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="flex gap-3">
               <input
@@ -187,6 +267,14 @@ export const GardenApp: React.FC = () => {
           </aside>
         )}
       </section>
+
+      {ledgerOpen && (
+        <IntelLedgerOverlay
+          entries={ledgerEntries}
+          onClose={() => setLedgerOpen(false)}
+          onShowOnGarden={handleShowOnGarden}
+        />
+      )}
     </main>
   );
 };

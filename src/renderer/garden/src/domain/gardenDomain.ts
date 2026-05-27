@@ -38,9 +38,17 @@ export interface WorkRun {
   mainAgentId: string;
   status: WorkRunStatus;
   plan: WorkRunPlan;
+  step: number;
 }
 
-export type BerryKind = "tab" | "sheet" | "xlsx" | "lead" | "work-run";
+export type BerryKind =
+  | "tab"
+  | "sheet"
+  | "xlsx"
+  | "lead"
+  | "report"
+  | "work-run";
+
 export type BerryStatus =
   | "idle"
   | "reading"
@@ -59,7 +67,14 @@ export interface Berry {
   height: number;
   status: BerryStatus;
   url?: string;
+  workRunId?: string;
+  onMap: boolean;
+  filePath?: string;
 }
+
+export type LedgerEntry = Berry & {
+  workRunTitle: string;
+};
 
 export type TelemetryKind =
   | "intent"
@@ -102,6 +117,46 @@ const DEMO_OUTPUT_COLUMNS = [
   "Status",
 ];
 
+const SOURCE_BERRY_IDS = [
+  "berry-strawberry-home",
+  "berry-strawberry-sales",
+  "berry-open-web-search",
+];
+
+const WORK_RUN_STEPS = [
+  {
+    agentLabel: "Reading Strawberry sales prospecting page",
+    telemetry: {
+      kind: "action" as const,
+      label: "Read Strawberry sales prospecting page",
+      icon: "read",
+      berryId: "berry-strawberry-sales",
+    },
+  },
+  {
+    agentLabel: "Searching the open web for likely buyers",
+    telemetry: {
+      kind: "action" as const,
+      label: "Search for browser-heavy sales teams",
+      icon: "search",
+      berryId: "berry-open-web-search",
+    },
+  },
+  {
+    agentLabel: "Writing qualified rows to Google Sheets",
+    telemetry: {
+      kind: "write" as const,
+      label: "Write lead rows to Google Sheet",
+      icon: "write",
+      fromBerryId: "berry-open-web-search",
+      toBerryId: "berry-google-sheet",
+    },
+  },
+];
+
+const GARDEN_ARTIFACT_ROOT =
+  "~/Blueberry/Gardens/Blueberry Sales Leads/artifacts";
+
 export const createInitialGardenState = (): GardenState => ({
   commands: [],
   agents: [],
@@ -109,6 +164,17 @@ export const createInitialGardenState = (): GardenState => ({
   berries: [],
   telemetry: [],
 });
+
+export const getVisibleBerries = (state: GardenState): Berry[] =>
+  state.berries.filter((berry) => berry.onMap);
+
+export const getLedgerEntries = (state: GardenState): LedgerEntry[] =>
+  state.berries.map((berry) => ({
+    ...berry,
+    workRunTitle:
+      state.workRuns.find((run) => run.id === berry.workRunId)?.title ??
+      "Quick command",
+  }));
 
 export const submitCommand = (
   state: GardenState,
@@ -167,6 +233,7 @@ export const submitCommand = (
         mainAgentId: agent.id,
         status: "planning",
         plan: createLeadGenPlan(),
+        step: 0,
       },
     ],
   };
@@ -191,14 +258,16 @@ export const approveWorkRun = (
         ? {
             ...agent,
             state: "acting",
-            currentLabel: "Reading Strawberry's positioning",
+            currentLabel: "Reading Strawberry sales prospecting page",
           }
         : agent
     ),
     workRuns: state.workRuns.map((candidate) =>
-      candidate.id === workRunId ? { ...candidate, status: "running" } : candidate
+      candidate.id === workRunId
+        ? { ...candidate, status: "running", step: 0 }
+        : candidate
     ),
-    berries: createDemoBerries(),
+    berries: createDemoBerries(workRunId),
     telemetry: [
       {
         id: "telemetry-1",
@@ -212,6 +281,165 @@ export const approveWorkRun = (
     ],
   };
 };
+
+export const advanceWorkRun = (
+  state: GardenState,
+  workRunId: string
+): GardenState => {
+  const workRun = state.workRuns.find((candidate) => candidate.id === workRunId);
+  if (!workRun || workRun.status !== "running") return state;
+
+  const stepIndex = workRun.step;
+  if (stepIndex >= WORK_RUN_STEPS.length) {
+    return completeWorkRun(state, workRunId);
+  }
+
+  const step = WORK_RUN_STEPS[stepIndex];
+  const nextTelemetryId = `telemetry-${state.telemetry.length + 1}`;
+
+  return {
+    ...state,
+    agents: state.agents.map((agent) =>
+      agent.id === workRun.mainAgentId
+        ? {
+            ...agent,
+            state: "acting",
+            currentLabel: step.agentLabel,
+          }
+        : agent
+    ),
+    workRuns: state.workRuns.map((candidate) =>
+      candidate.id === workRunId
+        ? { ...candidate, step: candidate.step + 1 }
+        : candidate
+    ),
+    berries: state.berries.map((berry) => {
+      if (step.telemetry.berryId && berry.id === step.telemetry.berryId) {
+        return { ...berry, status: "reading" as const };
+      }
+      if (step.telemetry.toBerryId && berry.id === step.telemetry.toBerryId) {
+        return { ...berry, status: "writing" as const };
+      }
+      return berry;
+    }),
+    telemetry: [
+      ...state.telemetry,
+      {
+        id: nextTelemetryId,
+        workRunId,
+        agentId: workRun.mainAgentId,
+        berryId: step.telemetry.berryId,
+        fromBerryId: step.telemetry.fromBerryId,
+        toBerryId: step.telemetry.toBerryId,
+        kind: step.telemetry.kind,
+        label: step.telemetry.label,
+        icon: step.telemetry.icon,
+      },
+    ],
+  };
+};
+
+export const completeWorkRun = (
+  state: GardenState,
+  workRunId: string
+): GardenState => {
+  const workRun = state.workRuns.find((candidate) => candidate.id === workRunId);
+  if (!workRun) return state;
+
+  const summaryBerry: Berry = {
+    id: `berry-summary-${workRunId}`,
+    kind: "work-run",
+    title: "Lead-gen run",
+    subtitle: "10 qualified leads · Sheet + XLSX backup",
+    x: 560,
+    y: 250,
+    width: 280,
+    height: 180,
+    status: "complete",
+    workRunId,
+    onMap: true,
+  };
+
+  const reportBerry: Berry = {
+    id: "berry-brief-report",
+    kind: "report",
+    title: "brief.md",
+    subtitle: "Research brief",
+    x: 0,
+    y: 0,
+    width: 240,
+    height: 150,
+    status: "complete",
+    workRunId,
+    onMap: false,
+    filePath: `${GARDEN_ARTIFACT_ROOT}/brief.md`,
+  };
+
+  return {
+    ...state,
+    commands: state.commands.map((command) =>
+      command.workRunId === workRunId
+        ? { ...command, status: "complete" }
+        : command
+    ),
+    agents: state.agents.map((agent) =>
+      agent.id === workRun.mainAgentId
+        ? {
+            ...agent,
+            state: "complete",
+            currentLabel: "Work Run complete",
+          }
+        : agent
+    ),
+    workRuns: state.workRuns.map((candidate) =>
+      candidate.id === workRunId
+        ? { ...candidate, status: "complete", step: WORK_RUN_STEPS.length }
+        : candidate
+    ),
+    berries: [
+      ...state.berries.map((berry) => {
+        if (SOURCE_BERRY_IDS.includes(berry.id)) {
+          return { ...berry, onMap: false, status: "complete" as const };
+        }
+        if (berry.kind === "sheet" || berry.kind === "xlsx") {
+          return { ...berry, onMap: true, status: "complete" as const };
+        }
+        return berry;
+      }),
+      summaryBerry,
+      reportBerry,
+    ],
+    telemetry: [
+      ...state.telemetry,
+      {
+        id: `telemetry-${state.telemetry.length + 1}`,
+        workRunId,
+        agentId: workRun.mainAgentId,
+        toBerryId: "berry-google-sheet",
+        kind: "complete",
+        label: "Lead-gen Work Run complete",
+        icon: "complete",
+      },
+    ],
+  };
+};
+
+export const showBerryOnGarden = (
+  state: GardenState,
+  berryId: string
+): GardenState => ({
+  ...state,
+  berries: state.berries.map((berry) =>
+    berry.id === berryId
+      ? {
+          ...berry,
+          onMap: true,
+          x: berry.x > 0 ? berry.x : 620,
+          y: berry.y > 0 ? berry.y : 520,
+        }
+      : berry
+  ),
+});
 
 const classifyCommand = (text: string): CommandRoute => {
   const normalized = text.toLowerCase();
@@ -266,7 +494,7 @@ const createLeadGenPlan = (): WorkRunPlan => ({
   ],
 });
 
-const createDemoBerries = (): Berry[] => [
+const createDemoBerries = (workRunId: string): Berry[] => [
   {
     id: "berry-strawberry-home",
     kind: "tab",
@@ -278,6 +506,8 @@ const createDemoBerries = (): Berry[] => [
     width: 260,
     height: 170,
     status: "reading",
+    workRunId,
+    onMap: true,
   },
   {
     id: "berry-strawberry-sales",
@@ -290,6 +520,8 @@ const createDemoBerries = (): Berry[] => [
     width: 260,
     height: 170,
     status: "idle",
+    workRunId,
+    onMap: true,
   },
   {
     id: "berry-open-web-search",
@@ -301,6 +533,8 @@ const createDemoBerries = (): Berry[] => [
     width: 260,
     height: 170,
     status: "idle",
+    workRunId,
+    onMap: true,
   },
   {
     id: "berry-google-sheet",
@@ -312,6 +546,8 @@ const createDemoBerries = (): Berry[] => [
     width: 300,
     height: 200,
     status: "idle",
+    workRunId,
+    onMap: true,
   },
   {
     id: "berry-xlsx-backup",
@@ -323,6 +559,9 @@ const createDemoBerries = (): Berry[] => [
     width: 240,
     height: 150,
     status: "idle",
+    workRunId,
+    onMap: true,
+    filePath: `${GARDEN_ARTIFACT_ROOT}/leads.xlsx`,
   },
 ];
 
