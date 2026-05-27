@@ -2,6 +2,7 @@ import { BaseWindow, shell } from "electron";
 import { Tab } from "./Tab";
 import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
+import { GardenView } from "./GardenView";
 
 export class Window {
   private _baseWindow: BaseWindow;
@@ -10,6 +11,7 @@ export class Window {
   private tabCounter: number = 0;
   private _topBar: TopBar;
   private _sideBar: SideBar;
+  private _garden: GardenView;
 
   constructor() {
     // Create the browser window.
@@ -26,18 +28,22 @@ export class Window {
     this._baseWindow.setMinimumSize(1000, 800);
 
     this._topBar = new TopBar(this._baseWindow);
+    this._garden = new GardenView(this._baseWindow);
     this._sideBar = new SideBar(this._baseWindow);
+    this._sideBar.hide();
 
     // Set the window reference on the LLM client to avoid circular dependency
     this._sideBar.client.setWindow(this);
 
     // Create the first tab
     this.createTab();
+    this.showGarden();
 
     // Set up window resize handler
     this._baseWindow.on("resize", () => {
       this.updateTabBounds();
       this._topBar.updateBounds();
+      this._garden.updateBounds();
       this._sideBar.updateBounds();
       // Notify renderer of resize through active tab
       const bounds = this._baseWindow.getBounds();
@@ -117,6 +123,18 @@ export class Window {
     }
 
     return tab;
+  }
+
+  openTabFromGarden(url: string): Tab {
+    const tab = this.createTab(url);
+    this.switchActiveTab(tab.id);
+    this._garden.hide();
+    return tab;
+  }
+
+  showGarden(): void {
+    this.tabsMap.forEach((tab) => tab.hide());
+    this._garden.show();
   }
 
   closeTab(tabId: string): boolean {
@@ -259,6 +277,10 @@ export class Window {
   // Getter for topBar to access from main process
   get topBar(): TopBar {
     return this._topBar;
+  }
+
+  get garden(): GardenView {
+    return this._garden;
   }
 
   // Getter for all tabs as array

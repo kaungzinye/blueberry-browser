@@ -19,6 +19,9 @@ export class EventManager {
     // Page content events
     this.handlePageContentEvents();
 
+    // Garden events
+    this.handleGardenEvents();
+
     // Dark mode events
     this.handleDarkModeEvents();
 
@@ -208,6 +211,18 @@ export class EventManager {
         return this.mainWindow.activeTab.url;
       }
       return null;
+    });
+  }
+
+  private handleGardenEvents(): void {
+    ipcMain.handle("garden-open-url", (_, url: string) => {
+      const tab = this.mainWindow.openTabFromGarden(url);
+      return { id: tab.id, title: tab.title, url: tab.url };
+    });
+
+    ipcMain.handle("garden-show", () => {
+      this.mainWindow.showGarden();
+      return true;
     });
   }
 

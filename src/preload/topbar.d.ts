@@ -28,6 +28,9 @@ interface TopBarAPI {
 
   // Sidebar
   toggleSidebar: () => Promise<void>;
+
+  // Garden
+  showGarden: () => Promise<boolean>;
 }
 
 declare global {

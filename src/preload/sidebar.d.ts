@@ -2,7 +2,7 @@ import { ElectronAPI } from "@electron-toolkit/preload";
 
 interface ChatRequest {
   message: string;
-  context: {
+  context?: {
     url: string | null;
     content: string | null;
     text: string | null;
@@ -25,9 +25,13 @@ interface TabInfo {
 
 interface SidebarAPI {
   // Chat functionality
-  sendChatMessage: (request: ChatRequest) => Promise<void>;
+  sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
+  clearChat: () => Promise<boolean>;
+  getMessages: () => Promise<any[]>;
   onChatResponse: (callback: (data: ChatResponse) => void) => void;
+  onMessagesUpdated: (callback: (messages: any[]) => void) => void;
   removeChatResponseListener: () => void;
+  removeMessagesUpdatedListener: () => void;
 
   // Page content access
   getPageContent: () => Promise<string | null>;
