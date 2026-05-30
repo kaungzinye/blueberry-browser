@@ -220,6 +220,36 @@ export class EventManager {
       return { id: tab.id, title: tab.title, url: tab.url };
     });
 
+    ipcMain.handle("garden-focus-tab", (_, tabId: string) => {
+      const switched = this.mainWindow.switchActiveTab(tabId);
+      if (switched) {
+        this.mainWindow.hideGarden();
+      }
+      return switched;
+    });
+
+    ipcMain.handle("garden-get-tab-berries", async () => {
+      const tabs = this.mainWindow.allTabs;
+      return Promise.all(
+        tabs.map(async (tab) => {
+          let screenshotDataUrl: string | undefined;
+          try {
+            const image = await tab.screenshot();
+            screenshotDataUrl = image.toDataURL();
+          } catch (error) {
+            console.error("Failed to capture tab preview for Garden:", error);
+          }
+
+          return {
+            browserTabId: tab.id,
+            title: tab.title,
+            url: tab.url,
+            screenshotDataUrl,
+          };
+        })
+      );
+    });
+
     ipcMain.handle("garden-show", () => {
       this.mainWindow.showGarden();
       return true;

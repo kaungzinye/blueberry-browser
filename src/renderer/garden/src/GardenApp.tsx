@@ -17,17 +17,22 @@ import {
   IntelLedgerOverlay,
   IntelLedgerStrip,
 } from "./components/IntelLedger";
+import { ReaderPane } from "./components/ReaderPane";
 import {
   advanceWorkRun,
   approveWorkRun,
+  AUTO_ADVANCE_MS,
   Berry,
   completeWorkRun,
   createInitialGardenState,
   GardenState,
   getLedgerEntries,
+  getReaderContent,
   getVisibleBerries,
+  hasActiveWorkRun,
   showBerryOnGarden,
   submitCommand,
+  syncTabBerries,
 } from "./domain/gardenDomain";
 
 const DEMO_COMMAND =
@@ -48,6 +53,7 @@ export const GardenApp: React.FC = () => {
   );
   const [commandText, setCommandText] = useState(DEMO_COMMAND);
   const [selectedBerryId, setSelectedBerryId] = useState<string | null>(null);
+  const [readerBerryId, setReaderBerryId] = useState<string | null>(null);
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const plannedWorkRun = state.workRuns.find((run) => run.status === "planning");
   const runningWorkRun = state.workRuns.find((run) => run.status === "running");
@@ -56,6 +62,8 @@ export const GardenApp: React.FC = () => {
   const visibleBerries = getVisibleBerries(state);
   const ledgerEntries = getLedgerEntries(state);
   const selectedBerry = state.berries.find((berry) => berry.id === selectedBerryId);
+  const readerBerry = state.berries.find((berry) => berry.id === readerBerryId);
+  const readerContent = readerBerry ? getReaderContent(readerBerry) : null;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -63,14 +71,56 @@ export const GardenApp: React.FC = () => {
         event.preventDefault();
         setLedgerOpen((open) => !open);
       }
-      if (event.key === "Escape" && ledgerOpen) {
-        setLedgerOpen(false);
+      if (event.key === "Escape") {
+        if (readerBerryId) {
+          setReaderBerryId(null);
+        } else if (ledgerOpen) {
+          setLedgerOpen(false);
+        }
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [ledgerOpen]);
+  }, [ledgerOpen, readerBerryId]);
+
+  useEffect(() => {
+    if (hasActiveWorkRun(state)) return;
+
+    let cancelled = false;
+
+    const pullTabBerries = async (): Promise<void> => {
+      const snapshots = await window.gardenAPI?.getTabBerries();
+      if (!snapshots?.length || cancelled) return;
+      setState((current) => syncTabBerries(current, snapshots));
+    };
+
+    void pullTabBerries();
+    const interval = window.setInterval(() => {
+      void pullTabBerries();
+    }, 4000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [hasActiveWorkRun(state)]);
+
+  useEffect(() => {
+    if (!runningWorkRun) return;
+
+    const timer = window.setInterval(() => {
+      setState((current) => {
+        const run = current.workRuns.find(
+          (candidate) => candidate.id === runningWorkRun.id
+        );
+        if (!run || run.status !== "running") return current;
+        return advanceWorkRun(current, run.id);
+      });
+    }, AUTO_ADVANCE_MS);
+
+    return () => window.clearInterval(timer);
+  }, [runningWorkRun?.id, runningWorkRun?.status, runningWorkRun?.step]);
 
   const agentPosition = useMemo(() => {
     if (!visibleBerries.length) return { x: 440, y: 310 };
@@ -95,8 +145,26 @@ export const GardenApp: React.FC = () => {
   };
 
   const handleOpenBerry = (berry: Berry): void => {
+    if (berry.kind === "report") {
+      setReaderBerryId(berry.id);
+      return;
+    }
+
+    if (berry.browserTabId) {
+      void window.gardenAPI?.focusTab(berry.browserTabId);
+      return;
+    }
+
     if (berry.kind !== "tab" || !berry.url) return;
-    window.gardenAPI?.openUrl(berry.url);
+    void window.gardenAPI?.openUrl(berry.url);
+  };
+
+  const handleSelectBerry = (berryId: string): void => {
+    setSelectedBerryId(berryId);
+    const berry = state.berries.find((candidate) => candidate.id === berryId);
+    if (berry?.kind === "report") {
+      setReaderBerryId(berryId);
+    }
   };
 
   const handleAdvanceWorkRun = (): void => {
@@ -160,7 +228,7 @@ export const GardenApp: React.FC = () => {
             selectedBerryId={selectedBerryId}
             agentPosition={agentPosition}
             agentLabel={mainAgent?.currentLabel ?? "Ready for browser work"}
-            onSelectBerry={setSelectedBerryId}
+            onSelectBerry={handleSelectBerry}
             onOpenBerry={handleOpenBerry}
           />
 
@@ -273,6 +341,14 @@ export const GardenApp: React.FC = () => {
           entries={ledgerEntries}
           onClose={() => setLedgerOpen(false)}
           onShowOnGarden={handleShowOnGarden}
+        />
+      )}
+
+      {readerBerry && readerContent && (
+        <ReaderPane
+          berry={readerBerry}
+          content={readerContent}
+          onBack={() => setReaderBerryId(null)}
         />
       )}
     </main>
@@ -412,7 +488,15 @@ const BerryCard: React.FC<BerryCardProps> = ({
         {berry.title}
       </h3>
       <p className="mt-1 text-sm text-slate-300">{berry.subtitle}</p>
-      <div className="mt-4 h-14 rounded-2xl border border-white/10 bg-gradient-to-br from-blue-200/15 to-slate-950/30" />
+      {berry.screenshotDataUrl ? (
+        <img
+          src={berry.screenshotDataUrl}
+          alt=""
+          className="mt-4 h-14 w-full rounded-2xl border border-white/10 object-cover object-top"
+        />
+      ) : (
+        <div className="mt-4 h-14 rounded-2xl border border-white/10 bg-gradient-to-br from-blue-200/15 to-slate-950/30" />
+      )}
     </button>
   );
 };

@@ -137,6 +137,14 @@ export class Window {
     this._garden.show();
   }
 
+  hideGarden(): void {
+    this._garden.hide();
+    if (this.activeTab) {
+      this.activeTab.show();
+      this.updateTabBounds();
+    }
+  }
+
   closeTab(tabId: string): boolean {
     const tab = this.tabsMap.get(tabId);
     if (!tab) {

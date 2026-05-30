@@ -5,9 +5,11 @@ import {
   completeWorkRun,
   createInitialGardenState,
   getLedgerEntries,
+  getReaderContent,
   getVisibleBerries,
   showBerryOnGarden,
   submitCommand,
+  syncTabBerries,
 } from "../gardenDomain";
 
 const demoCommand =
@@ -96,6 +98,67 @@ describe("Intel Ledger and work run completion", () => {
     expect(getVisibleBerries(restored).some((berry) => berry.id === "berry-brief-report")).toBe(
       true
     );
+  });
+
+  it("syncs open browser tabs into tab Berries when no Work Run is active", () => {
+    const synced = syncTabBerries(createInitialGardenState(), [
+      {
+        browserTabId: "tab-1",
+        title: "Strawberry Browser",
+        url: "https://strawberrybrowser.com/",
+        screenshotDataUrl: "data:image/png;base64,abc",
+      },
+      {
+        browserTabId: "tab-2",
+        title: "Google",
+        url: "https://www.google.com/",
+      },
+    ]);
+
+    const tabBerries = getVisibleBerries(synced).filter((berry) => berry.browserTabId);
+    expect(tabBerries).toHaveLength(2);
+    expect(tabBerries[0]).toMatchObject({
+      id: "berry-tab-tab-1",
+      kind: "tab",
+      browserTabId: "tab-1",
+      screenshotDataUrl: "data:image/png;base64,abc",
+      onMap: true,
+    });
+    expect(tabBerries[1].subtitle).toBe("google.com");
+  });
+
+  it("does not overwrite demo Work Run Berries while a run is active", () => {
+    const running = approveWorkRun(
+      submitCommand(createInitialGardenState(), demoCommand),
+      "work-run-1"
+    );
+
+    const synced = syncTabBerries(running, [
+      {
+        browserTabId: "tab-99",
+        title: "Should not appear",
+        url: "https://example.com/",
+      },
+    ]);
+
+    expect(getVisibleBerries(synced).some((berry) => berry.browserTabId)).toBe(
+      false
+    );
+    expect(getVisibleBerries(synced).length).toBe(5);
+  });
+
+  it("returns readable markdown for report Berries", () => {
+    const completed = completeWorkRun(
+      approveWorkRun(
+        submitCommand(createInitialGardenState(), demoCommand),
+        "work-run-1"
+      ),
+      "work-run-1"
+    );
+    const report = completed.berries.find((berry) => berry.id === "berry-brief-report");
+
+    expect(report).toBeDefined();
+    expect(getReaderContent(report!)).toContain("Strawberry ICP");
   });
 
   it("advances a running Work Run with additional visible telemetry", () => {

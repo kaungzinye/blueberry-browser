@@ -70,6 +70,15 @@ export interface Berry {
   workRunId?: string;
   onMap: boolean;
   filePath?: string;
+  browserTabId?: string;
+  screenshotDataUrl?: string;
+}
+
+export interface TabBerrySnapshot {
+  browserTabId: string;
+  title: string;
+  url: string;
+  screenshotDataUrl?: string;
 }
 
 export type LedgerEntry = Berry & {
@@ -122,6 +131,9 @@ const SOURCE_BERRY_IDS = [
   "berry-strawberry-sales",
   "berry-open-web-search",
 ];
+
+export const WORK_RUN_STEP_COUNT = 3;
+export const AUTO_ADVANCE_MS = 2800;
 
 const WORK_RUN_STEPS = [
   {
@@ -424,6 +436,54 @@ export const completeWorkRun = (
   };
 };
 
+export const hasActiveWorkRun = (state: GardenState): boolean =>
+  state.workRuns.some(
+    (run) => run.status === "planning" || run.status === "running"
+  );
+
+export const syncTabBerries = (
+  state: GardenState,
+  snapshots: TabBerrySnapshot[]
+): GardenState => {
+  if (hasActiveWorkRun(state)) return state;
+
+  const preserved = state.berries.filter((berry) => !berry.browserTabId);
+  const synced = snapshots.map((snapshot, index) => {
+    const existing = state.berries.find(
+      (berry) => berry.browserTabId === snapshot.browserTabId
+    );
+    const layout = layoutSyncedTabBerry(index);
+
+    return {
+      id: existing?.id ?? `berry-tab-${snapshot.browserTabId}`,
+      kind: "tab" as const,
+      browserTabId: snapshot.browserTabId,
+      title: snapshot.title,
+      subtitle: tabSubtitle(snapshot.url),
+      url: snapshot.url,
+      screenshotDataUrl: snapshot.screenshotDataUrl ?? existing?.screenshotDataUrl,
+      x: existing?.x ?? layout.x,
+      y: existing?.y ?? layout.y,
+      width: existing?.width ?? 240,
+      height: existing?.height ?? 170,
+      status: existing?.status ?? ("idle" as const),
+      onMap: existing?.onMap ?? true,
+    };
+  });
+
+  return { ...state, berries: [...preserved, ...synced] };
+};
+
+export const getReaderContent = (berry: Berry): string | null => {
+  if (berry.kind !== "report") return null;
+
+  if (berry.id === "berry-brief-report" || berry.title === "brief.md") {
+    return DEMO_BRIEF_MARKDOWN;
+  }
+
+  return `# ${berry.title}\n\n${berry.subtitle}`;
+};
+
 export const showBerryOnGarden = (
   state: GardenState,
   berryId: string
@@ -566,3 +626,33 @@ const createDemoBerries = (workRunId: string): Berry[] => [
 ];
 
 const createId = (prefix: string, index: number): string => `${prefix}-${index}`;
+
+const DEMO_BRIEF_MARKDOWN = `# Blueberry sales lead brief
+
+## Strawberry ICP (inferred)
+- Browser-heavy sales, recruiting, operations, and research teams
+- Teams that repeat web research, list building, and CRM prep in tabs
+- Buyers who want visible agent work instead of hidden background automation
+
+## Blueberry fit
+- Spatial Garden makes multi-tab research legible
+- Tab Berries + destination Berries show where work happens
+- Intel Ledger keeps artifacts reachable without sidebar clutter
+
+## Demo output
+- 10 qualified companies in Google Sheets
+- XLSX backup under \`~/Blueberry/Gardens/Blueberry Sales Leads/artifacts/\`
+`;
+
+const layoutSyncedTabBerry = (index: number): { x: number; y: number } => ({
+  x: 80 + (index % 3) * 280,
+  y: 120 + Math.floor(index / 3) * 210,
+});
+
+const tabSubtitle = (url: string): string => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+};
