@@ -1,16 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Archive,
+  Bot,
   ChevronDown,
   ChevronUp,
   CornerDownLeft,
   FileDown,
   FileSpreadsheet,
   FileText,
+  Maximize2,
   Plus,
   Sparkles,
+  X,
 } from "lucide-react";
-import type { BerryKind } from "../domain/gardenDomain";
+import type { BerryKind, LedgerEntry } from "../domain/gardenDomain";
 import type { Agent, Berry } from "../domain/gardenDomain";
 import type {
   MainAgentCycleScope,
@@ -20,6 +23,10 @@ import {
   commandPreview,
   getCommandRosterStatus,
 } from "../domain/gardenRoster";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { ScrollArea } from "./ui/scroll-area";
+import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 
 export interface ViewportTransform {
   panX: number;
@@ -52,6 +59,15 @@ interface GardenHudProps {
   onReopenCommand: (commandId: string) => void;
   rosterCycleHint: string | null;
   onDismissRosterHint: () => void;
+  /** Artifact Berries produced by the selected Main Agent (Outputs shelf). */
+  bottomArtifacts: Berry[];
+  bottomArtifactsLabel?: string;
+  onSelectArtifact: (berryId: string) => void;
+  onOpenLedger: () => void;
+  /** All garden-wide artifact berries (non-tab) for the Artifact Roster panel. */
+  allArtifacts: LedgerEntry[];
+  onShowArtifactOnGarden: (berryId: string) => void;
+  onOpenArtifact: (berryId: string) => void;
 }
 
 const MINIMAP_WIDTH = 128;
@@ -59,19 +75,20 @@ const MINIMAP_HEIGHT = 88;
 const WORLD_VIEW_RADIUS = 1200;
 const LEFT_SIDE_WIDTH = "17.5rem";
 /** Width of the dedicated right HUD column (roster + run controls). */
-export const GARDEN_RIGHT_HUD_WIDTH = "14.5rem";
+export const GARDEN_RIGHT_HUD_WIDTH = "15rem";
 
-const RIGHT_HUD_BASE =
-  "app-region-no-drag pointer-events-auto flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/92 shadow-[0_8px_40px_rgba(2,8,23,0.45)] backdrop-blur-xl";
+/** Shared chrome surface — one restrained panel treatment for all HUD slabs. */
+const PANEL =
+  "app-region-no-drag pointer-events-auto border border-line/10 bg-surface-0/92 backdrop-blur-xl";
+
+const SECTION_LABEL =
+  "font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint";
 
 const SCOPE_OPTIONS: { id: MainAgentCycleScope; label: string }[] = [
   { id: "in-progress", label: "Active" },
   { id: "completed", label: "Done" },
   { id: "all", label: "All" },
 ];
-
-const SIDE_PANEL_BASE =
-  "app-region-no-drag pointer-events-auto shrink-0 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl";
 
 const MOCK_CHAT_HISTORY: { role: "user" | "agent"; text: string }[] = [
   {
@@ -111,12 +128,12 @@ const CommandInput: React.FC<{
       <input
         value={commandText}
         onChange={(event) => onCommandTextChange(event.target.value)}
-        className="w-full rounded-2xl border border-white/10 bg-white/10 py-3 pl-4 pr-12 text-sm text-white outline-none backdrop-blur-md placeholder:text-slate-500 focus:border-blue-300/60"
+        className="w-full rounded-2xl border border-line/12 bg-surface-2/80 py-3 pl-4 pr-12 text-sm text-ink outline-none backdrop-blur-md transition-colors placeholder:text-ink-faint focus:border-accent/60"
         placeholder="Command the garden…"
       />
       <button
         type="submit"
-        className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-blue-200"
+        className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-xl text-ink-faint transition-colors hover:bg-white/[0.06] hover:text-accent"
         title="Send (Enter)"
         aria-label="Send command"
       >
@@ -134,16 +151,16 @@ const ChatMessage: React.FC<{
   <div
     className={`max-w-2xl ${role === "user" ? "ml-auto text-right" : "mr-auto text-left"}`}
   >
-    <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">
-      {role === "user" ? "You" : "Blue"}
+    <span className={`mb-1 block ${SECTION_LABEL}`}>
+      {role === "user" ? "You" : "Main Agent"}
     </span>
     <p
       className={`text-sm leading-relaxed ${
         faded
-          ? "text-slate-500/70"
+          ? "text-ink-faint/70"
           : role === "user"
-            ? "rounded-2xl border border-white/10 bg-white/10 px-4 py-2.5 text-slate-200"
-            : "text-blue-50"
+            ? "rounded-2xl border border-line/10 bg-surface-2/70 px-4 py-2.5 text-ink"
+            : "text-accent-strong"
       }`}
     >
       {text}
@@ -157,13 +174,13 @@ const Minimap: React.FC<{
   toMini: (wx: number, wy: number) => { left: number; top: number };
 }> = ({ berries, viewRect, toMini }) => (
   <div
-    className="relative shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-blue-950/60"
+    className="relative shrink-0 overflow-hidden rounded-2xl border border-line/10 bg-garden-base"
     style={{ width: MINIMAP_WIDTH, height: MINIMAP_HEIGHT }}
     aria-label="Garden minimap"
   >
-    <div className="absolute inset-0 bg-blue-950/50" />
+    <div className="garden-field absolute inset-0 opacity-70" />
     <span
-      className="absolute size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-200/80"
+      className="absolute size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/80"
       style={{ left: MINIMAP_WIDTH / 2, top: MINIMAP_HEIGHT / 2 }}
     />
     {berries.map((berry) => {
@@ -171,13 +188,13 @@ const Minimap: React.FC<{
       return (
         <span
           key={berry.id}
-          className="absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-200 shadow-[0_0_8px_rgba(125,211,252,0.8)]"
+          className="absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent"
           style={{ left: point.left, top: point.top }}
         />
       );
     })}
     <div
-      className="pointer-events-none absolute rounded-md border border-blue-200/50 bg-blue-200/10"
+      className="pointer-events-none absolute rounded-md border border-accent/50 bg-accent/10"
       style={{
         left: viewRect.left,
         top: viewRect.top,
@@ -188,22 +205,21 @@ const Minimap: React.FC<{
   </div>
 );
 
-const AgentSlot: React.FC<{ agent: Agent | undefined }> = ({ agent }) => (
-  <div className="flex h-[88px] w-[4.5rem] shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-white/15 bg-white/5 px-2">
-    <div className="relative flex size-12 items-center justify-center rounded-full bg-blue-200/15">
-      <div className="flex h-9 w-7 flex-col items-center">
-        <div className="h-4 w-4 rounded-full bg-blue-100" />
-        <div className="mt-0.5 h-4 w-6 rounded-b-xl rounded-t-md bg-blue-300" />
+/** Compact Main Agent identity tile for the bottom-left HUD (no 3D here). */
+const AgentBadge: React.FC<{ agent: Agent | undefined }> = ({ agent }) => {
+  const active = Boolean(agent && agent.state !== "idle");
+  return (
+    <div className="flex h-[88px] w-[4.5rem] shrink-0 flex-col items-center justify-center gap-2 rounded-2xl border border-line/12 bg-surface-1/70 px-2">
+      <div className="relative flex size-11 items-center justify-center rounded-full bg-accent/12 text-accent">
+        <Bot className="size-5" />
+        {active && (
+          <span className="absolute -right-0.5 -top-0.5 size-2.5 animate-pulse rounded-full bg-tm-complete" />
+        )}
       </div>
-      {agent && agent.state !== "idle" && (
-        <span className="absolute -right-0.5 -top-0.5 size-2.5 animate-pulse rounded-full bg-emerald-400" />
-      )}
+      <span className={SECTION_LABEL}>Agent</span>
     </div>
-    <span className="text-center text-[10px] uppercase tracking-wider text-slate-500">
-      Agent
-    </span>
-  </div>
-);
+  );
+};
 
 const HudLeft: React.FC<{
   berries: Berry[];
@@ -212,13 +228,65 @@ const HudLeft: React.FC<{
   toMini: (wx: number, wy: number) => { left: number; top: number };
 }> = ({ berries, agent, viewRect, toMini }) => (
   <div
-    className="app-region-no-drag pointer-events-auto flex shrink-0 flex-row items-center gap-2 border-r border-white/10 bg-slate-950/90 px-3 py-3 backdrop-blur-xl"
+    className={`${PANEL} flex shrink-0 flex-row items-center gap-2 border-l-0 border-b-0 border-r border-t-0 px-3 py-3`}
     style={{ width: LEFT_SIDE_WIDTH }}
   >
     <Minimap berries={berries} viewRect={viewRect} toMini={toMini} />
-    <AgentSlot agent={agent} />
+    <AgentBadge agent={agent} />
   </div>
 );
+
+const RosterEntry: React.FC<{
+  entry: MainAgentRosterEntry;
+  index: number;
+  selected: boolean;
+  onSelect: () => void;
+  onMarkDone: () => void;
+  onReopen: () => void;
+}> = ({ entry, index, selected, onSelect, onMarkDone, onReopen }) => {
+  const rosterStatus = getCommandRosterStatus(entry.command);
+  const done = rosterStatus === "completed";
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${
+          selected
+            ? "border-accent/55 bg-accent/10"
+            : "border-line/10 bg-white/[0.03] hover:border-line/20 hover:bg-white/[0.06]"
+        }`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-accent/80">
+            Main Agent {index + 1}
+          </span>
+          <Badge variant={done ? "done" : "active"} size="xs">
+            {done ? "Done" : "Active"}
+          </Badge>
+        </div>
+        <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-ink">
+          {commandPreview(entry.command)}
+        </p>
+        <p className="mt-1 font-mono text-[10px] text-ink-faint">
+          {entry.agent.currentLabel}
+        </p>
+      </button>
+      {selected && (
+        <div className="mt-1 px-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full"
+            onClick={done ? onReopen : onMarkDone}
+          >
+            {done ? "Reopen" : "Mark done"}
+          </Button>
+        </div>
+      )}
+    </li>
+  );
+};
 
 const MainAgentRosterPanel: React.FC<{
   roster: MainAgentRosterEntry[];
@@ -237,6 +305,9 @@ const MainAgentRosterPanel: React.FC<{
   showWorkRunControls?: boolean;
   onAdvanceWorkRun?: () => void;
   onCompleteWorkRun?: () => void;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  cycleFlash: boolean;
 }> = ({
   roster,
   selectedMainAgentId,
@@ -254,176 +325,167 @@ const MainAgentRosterPanel: React.FC<{
   showWorkRunControls,
   onAdvanceWorkRun,
   onCompleteWorkRun,
-}) => (
-  <div className={`${RIGHT_HUD_BASE} flex min-h-0 flex-col`} aria-label="Main Agent roster">
-    <div className="flex shrink-0 flex-col gap-2 border-b border-white/10 px-3 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] uppercase tracking-wider text-slate-500">
-          Main Agents
-        </p>
-        <button
-          type="button"
-          onClick={onNewCommand}
-          className="flex items-center gap-1 rounded-lg border border-blue-200/25 bg-blue-200/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-blue-100 hover:bg-blue-200/20"
-          title="New Command"
-        >
-          <Plus className="size-3" />
-          New
-        </button>
-      </div>
-      <div className="flex gap-1" role="group" aria-label="Cycle scope">
-        {SCOPE_OPTIONS.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => onScopeChange(option.id)}
-            className={`flex-1 rounded-lg px-2 py-1 text-[10px] font-medium uppercase tracking-wide ${
-              scope === option.id
-                ? "bg-blue-200/20 text-blue-100"
-                : "text-slate-500 hover:bg-white/5 hover:text-slate-300"
-            }`}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-      {rosterCycleHint && (
-        <p className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-2 py-1.5 text-[11px] leading-snug text-amber-100/90">
-          {rosterCycleHint}
-          <button
-            type="button"
-            className="ml-2 underline opacity-80"
-            onClick={onDismissRosterHint}
-          >
-            OK
-          </button>
-        </p>
-      )}
-    </div>
+  expanded,
+  onToggleExpanded,
+  cycleFlash,
+}) => {
+  if (!expanded) {
+    const selectedEntry =
+      roster.find((e) => e.agent.id === selectedMainAgentId) ?? roster[0];
+    const selectedIndex = selectedEntry ? roster.indexOf(selectedEntry) : 0;
+    const done =
+      selectedEntry
+        ? getCommandRosterStatus(selectedEntry.command) === "completed"
+        : false;
 
-    <ol className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 py-3">
-      {roster.length === 0 ? (
-        <li className="px-2 py-6 text-center text-xs text-slate-500">
-          No Main Agents in this view.
-          <br />
-          <button
-            type="button"
-            className="mt-2 text-blue-200 underline"
-            onClick={onNewCommand}
-          >
-            New Command
-          </button>
-        </li>
-      ) : (
-        roster.map((entry, index) => {
-          const selected = entry.agent.id === selectedMainAgentId;
-          const rosterStatus = getCommandRosterStatus(entry.command);
-          return (
-            <li key={entry.agent.id}>
+    return (
+      <button
+        type="button"
+        onClick={onToggleExpanded}
+        className={`${PANEL} w-full rounded-xl px-3 py-2.5 text-left transition-all ${
+          cycleFlash ? "ring-1 ring-accent/60" : ""
+        }`}
+        aria-label="Expand Main Agent roster"
+      >
+        <div className="flex items-center gap-2">
+          <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-accent/80">
+            {roster.length === 0 ? "Agents" : `Agent ${selectedIndex + 1}`}
+          </span>
+          {roster.length > 0 && (
+            <span
+              className={`size-1.5 shrink-0 rounded-full ${
+                done ? "bg-tm-complete" : "animate-pulse bg-accent"
+              }`}
+            />
+          )}
+          <span className="min-w-0 flex-1 truncate text-xs text-ink">
+            {selectedEntry?.agent.currentLabel ?? "No agents · Tab cycles"}
+          </span>
+          {roster.length > 1 && (
+            <span className="shrink-0 rounded-full bg-surface-2/60 px-1.5 py-0.5 font-mono text-[9px] text-ink-faint">
+              {roster.length}
+            </span>
+          )}
+          <ChevronDown className="size-3 shrink-0 text-ink-faint" />
+        </div>
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className={`${PANEL} flex max-h-full min-h-0 w-full flex-col rounded-2xl shadow-panel`}
+      aria-label="Main Agent roster"
+    >
+      <div className="flex shrink-0 flex-col gap-2.5 border-b border-line/10 px-3 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className={SECTION_LABEL}>Main Agents</p>
+          <div className="flex items-center gap-1">
+            <Button variant="subtle" size="sm" onClick={onNewCommand} title="New Command">
+              <Plus className="size-3" />
+              New
+            </Button>
+            <button
+              type="button"
+              onClick={onToggleExpanded}
+              className="rounded-lg p-1 text-ink-faint transition-colors hover:text-ink"
+              aria-label="Collapse roster"
+            >
+              <ChevronUp className="size-3.5" />
+            </button>
+          </div>
+        </div>
+        <ToggleGroup
+          type="single"
+          value={scope}
+          onValueChange={(value) => value && onScopeChange(value as MainAgentCycleScope)}
+          aria-label="Cycle scope"
+        >
+          {SCOPE_OPTIONS.map((option) => (
+            <ToggleGroupItem key={option.id} value={option.id}>
+              {option.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        {rosterCycleHint && (
+          <p className="rounded-lg border border-tm-blocker/25 bg-tm-blocker/10 px-2 py-1.5 text-[11px] leading-snug text-tm-blocker">
+            {rosterCycleHint}
+            <button
+              type="button"
+              className="ml-2 underline opacity-80"
+              onClick={onDismissRosterHint}
+            >
+              OK
+            </button>
+          </p>
+        )}
+      </div>
+
+      <ScrollArea className="min-h-0 flex-1">
+        <ol className="flex flex-col gap-2 px-2 py-3">
+          {roster.length === 0 ? (
+            <li className="px-2 py-6 text-center text-xs text-ink-faint">
+              No Main Agents in this view.
+              <br />
               <button
                 type="button"
-                onClick={() => onSelectMainAgent(entry.agent.id)}
-                className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                  selected
-                    ? "border-blue-200/60 bg-blue-200/15 shadow-[0_0_20px_rgba(96,165,250,0.15)]"
-                    : "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/8"
-                }`}
+                className="mt-2 text-accent underline"
+                onClick={onNewCommand}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-blue-100/80">
-                    Main Agent {index + 1}
-                  </span>
-                  <span
-                    className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${
-                      rosterStatus === "completed"
-                        ? "bg-slate-700/80 text-slate-400"
-                        : "bg-emerald-400/15 text-emerald-200"
-                    }`}
-                  >
-                    {rosterStatus === "completed" ? "Done" : "Active"}
-                  </span>
-                </div>
-                <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-slate-200">
-                  {commandPreview(entry.command)}
-                </p>
-                <p className="mt-1 text-[10px] text-slate-500">
-                  {entry.agent.currentLabel}
-                </p>
+                New Command
               </button>
-              {selected && (
-                <div className="mt-1 flex gap-1 px-1">
-                  {rosterStatus === "in-progress" ? (
-                    <button
-                      type="button"
-                      onClick={() => onMarkCommandDone(entry.command.id)}
-                      className="flex-1 rounded-lg border border-white/10 px-2 py-1 text-[10px] text-slate-400 hover:bg-white/5"
-                    >
-                      Mark done
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => onReopenCommand(entry.command.id)}
-                      className="flex-1 rounded-lg border border-white/10 px-2 py-1 text-[10px] text-slate-400 hover:bg-white/5"
-                    >
-                      Reopen
-                    </button>
-                  )}
-                </div>
-              )}
             </li>
-          );
-        })
-      )}
-    </ol>
+          ) : (
+            roster.map((entry, index) => (
+              <RosterEntry
+                key={entry.agent.id}
+                entry={entry}
+                index={index}
+                selected={entry.agent.id === selectedMainAgentId}
+                onSelect={() => onSelectMainAgent(entry.agent.id)}
+                onMarkDone={() => onMarkCommandDone(entry.command.id)}
+                onReopen={() => onReopenCommand(entry.command.id)}
+              />
+            ))
+          )}
+        </ol>
+      </ScrollArea>
 
-    <div className="shrink-0 space-y-2 border-t border-white/10 px-3 py-3">
-      {plannedWorkRunTitle && onApprovePlan && (
-        <div className="space-y-2">
-          <p className="line-clamp-2 text-xs leading-relaxed text-slate-400">
-            {plannedWorkRunTitle}
-          </p>
-          <button
-            type="button"
-            onClick={onApprovePlan}
-            className="w-full rounded-xl bg-blue-300 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-blue-200"
-          >
-            Approve run
-          </button>
-        </div>
-      )}
-      {showWorkRunControls && (
-        <div className="flex flex-col gap-2 text-xs">
-          {onAdvanceWorkRun && (
-            <button
-              type="button"
-              onClick={onAdvanceWorkRun}
-              className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-slate-200 hover:bg-white/15"
-            >
-              Advance
-            </button>
-          )}
-          {onCompleteWorkRun && (
-            <button
-              type="button"
-              onClick={onCompleteWorkRun}
-              className="rounded-xl border border-emerald-300/20 bg-emerald-300/15 px-3 py-2 text-emerald-100"
-            >
-              Complete run
-            </button>
-          )}
-        </div>
-      )}
-      <p className="text-center text-[10px] text-slate-600">
-        {berryCount} {berryCount === 1 ? "berry" : "berries"} · Tab cycles
-      </p>
+      <div className="shrink-0 space-y-2 border-t border-line/10 px-3 py-3">
+        {plannedWorkRunTitle && onApprovePlan && (
+          <div className="space-y-2">
+            <p className="line-clamp-2 text-xs leading-relaxed text-ink-muted">
+              {plannedWorkRunTitle}
+            </p>
+            <Button variant="primary" size="md" className="w-full" onClick={onApprovePlan}>
+              Approve run
+            </Button>
+          </div>
+        )}
+        {showWorkRunControls && (
+          <div className="flex flex-col gap-2">
+            {onAdvanceWorkRun && (
+              <Button variant="outline" size="md" className="w-full" onClick={onAdvanceWorkRun}>
+                Advance
+              </Button>
+            )}
+            {onCompleteWorkRun && (
+              <Button variant="success" size="md" className="w-full" onClick={onCompleteWorkRun}>
+                Complete run
+              </Button>
+            )}
+          </div>
+        )}
+        <p className="text-center font-mono text-[10px] text-ink-faint">
+          {berryCount} {berryCount === 1 ? "berry" : "berries"} · Tab cycles
+        </p>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
-const BOTTOM_ARTIFACT_ICON: Record<
-  "sheet" | "xlsx" | "report" | "lead" | "work-run",
-  React.ComponentType<{ className?: string }>
+const ARTIFACT_ICONS: Partial<
+  Record<BerryKind, React.ComponentType<{ className?: string }>>
 > = {
   sheet: FileSpreadsheet,
   xlsx: FileDown,
@@ -432,50 +494,234 @@ const BOTTOM_ARTIFACT_ICON: Record<
   "work-run": Archive,
 };
 
-const MOCK_BOTTOM_ARTIFACTS: {
-  id: string;
-  kind: BerryKind;
-  title: string;
-}[] = [
-  { id: "mock-sheet", kind: "sheet", title: "Sales leads" },
-  { id: "mock-xlsx", kind: "xlsx", title: "leads.xlsx" },
-  { id: "mock-report", kind: "report", title: "brief.md" },
-  { id: "mock-lead", kind: "lead", title: "Acme Corp" },
+// Keep original alias for HudBottomRight which uses a different name
+const ARTIFACT_ICON = ARTIFACT_ICONS;
+
+const artifactIconFor = (
+  kind: BerryKind
+): React.ComponentType<{ className?: string }> => ARTIFACT_ICON[kind] ?? FileText;
+
+type ArtifactKindFilter = BerryKind | "all";
+
+const ARTIFACT_KIND_FILTERS: { id: ArtifactKindFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "sheet", label: "Sheet" },
+  { id: "report", label: "Report" },
+  { id: "lead", label: "Lead" },
+  { id: "xlsx", label: "XLSX" },
+  { id: "work-run", label: "Run" },
 ];
 
-const HudBottomRight: React.FC = () => (
-  <div
-    className="app-region-no-drag pointer-events-auto flex h-[88px] shrink-0 items-center gap-2 border-l border-white/10 bg-slate-950/90 px-2 py-2 backdrop-blur-xl"
-    style={{ width: LEFT_SIDE_WIDTH }}
-    aria-label="Recent artifacts (mock)"
-  >
-    <p className="w-9 shrink-0 text-center text-[9px] font-medium uppercase leading-tight tracking-wide text-slate-500">
-      Your berries
-    </p>
-    <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
-      {MOCK_BOTTOM_ARTIFACTS.map((berry) => {
-        const Icon = BOTTOM_ARTIFACT_ICON[berry.kind as keyof typeof BOTTOM_ARTIFACT_ICON];
-        if (!Icon) return null;
-        return (
-          <button
-            key={berry.id}
-            type="button"
-            className="flex w-[4.25rem] shrink-0 flex-col items-center gap-0.5 rounded-lg border border-white/10 bg-white/5 px-1 py-1.5 hover:border-blue-200/30 hover:bg-white/10"
-            title={`${berry.title} (${berry.kind})`}
-          >
-            <Icon className="size-3.5 text-blue-100/80" />
-            <span className="w-full truncate text-center text-[9px] text-slate-300">
-              {berry.title}
-            </span>
-            <span className="text-[8px] uppercase tracking-wide text-slate-600">
-              {berry.kind}
-            </span>
-          </button>
-        );
-      })}
+const ArtifactRosterPanel: React.FC<{
+  artifacts: LedgerEntry[];
+  onShowOnGarden: (berryId: string) => void;
+  onOpen: (berryId: string) => void;
+  headerActions?: React.ReactNode;
+}> = ({ artifacts, onShowOnGarden, onOpen, headerActions }) => {
+  const [kindFilter, setKindFilter] = useState<ArtifactKindFilter>("all");
+
+  const visibleKinds = useMemo(
+    () => new Set(artifacts.map((a) => a.kind)),
+    [artifacts]
+  );
+
+  const filtered = useMemo(
+    () =>
+      kindFilter === "all" ? artifacts : artifacts.filter((a) => a.kind === kindFilter),
+    [artifacts, kindFilter]
+  );
+
+  const grouped = useMemo(
+    () =>
+      filtered.reduce<Record<string, LedgerEntry[]>>((acc, entry) => {
+        (acc[entry.workRunTitle] ??= []).push(entry);
+        return acc;
+      }, {}),
+    [filtered]
+  );
+
+  return (
+    <div
+      className={`${PANEL} flex max-h-full min-h-0 w-full flex-col rounded-2xl shadow-panel`}
+      aria-label="Artifact roster"
+    >
+      <div className="flex shrink-0 flex-col gap-2 border-b border-line/10 px-3 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className={SECTION_LABEL}>Artifacts</p>
+          {headerActions}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {ARTIFACT_KIND_FILTERS.filter(
+            (f) => f.id === "all" || visibleKinds.has(f.id as BerryKind)
+          ).map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setKindFilter(f.id)}
+              className={`rounded-md px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide transition-colors ${
+                kindFilter === f.id
+                  ? "bg-accent/15 text-accent"
+                  : "text-ink-faint hover:text-ink"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <ScrollArea className="min-h-0 flex-1">
+        {artifacts.length === 0 ? (
+          <p className="px-4 py-8 text-center text-xs text-ink-faint">
+            No artifacts yet.
+            <br />
+            Approve a Work Run to produce them.
+          </p>
+        ) : filtered.length === 0 ? (
+          <p className="px-4 py-6 text-center text-xs text-ink-faint">
+            No {kindFilter}s in this Garden.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-4 px-2 py-3">
+            {Object.entries(grouped).map(([runTitle, entries]) => (
+              <div key={runTitle}>
+                <p className="mb-1.5 px-1 font-mono text-[10px] uppercase tracking-wider text-accent/70 truncate">
+                  {runTitle}
+                </p>
+                <ol className="flex flex-col gap-1.5">
+                  {entries.map((entry) => {
+                    const Icon = artifactIconFor(entry.kind);
+                    return (
+                      <li key={entry.id}>
+                        <button
+                          type="button"
+                          onClick={() => onOpen(entry.id)}
+                          className="w-full rounded-xl border border-line/10 bg-white/[0.03] px-3 py-2.5 text-left transition-colors hover:border-line/20 hover:bg-white/[0.06]"
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <div className="mt-0.5 shrink-0 rounded-lg bg-accent/12 p-1.5 text-accent">
+                              <Icon className="size-3" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-medium text-ink">
+                                {entry.title}
+                              </p>
+                              <p className="truncate font-mono text-[10px] text-ink-faint">
+                                {entry.subtitle}
+                              </p>
+                            </div>
+                            {!entry.onMap && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onShowOnGarden(entry.id);
+                                }}
+                                className="shrink-0 rounded-lg border border-line/10 bg-white/[0.03] px-1.5 py-1 font-mono text-[9px] uppercase tracking-wide text-ink-faint transition-colors hover:border-accent/40 hover:text-accent"
+                                title="Pin to garden canvas"
+                              >
+                                Pin
+                              </button>
+                            )}
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            ))}
+          </div>
+        )}
+      </ScrollArea>
+
+      <div className="shrink-0 border-t border-line/10 px-3 py-2.5">
+        <p className="text-center font-mono text-[10px] text-ink-faint">
+          {artifacts.length} {artifacts.length === 1 ? "artifact" : "artifacts"} · ⌘I full view
+        </p>
+      </div>
     </div>
-  </div>
-);
+  );
+};
+
+const ArtifactsShelf: React.FC<{
+  artifacts: Berry[];
+  agentLabel?: string;
+  onSelectArtifact: (berryId: string) => void;
+  onOpenLedger: () => void;
+  panelExpanded: boolean;
+  onTogglePanel: () => void;
+}> = ({ artifacts, agentLabel, onSelectArtifact, onOpenLedger, panelExpanded, onTogglePanel }) => {
+  const lastArtifact = artifacts[artifacts.length - 1];
+  const extra = artifacts.length - 1;
+
+  return (
+    <div
+      className={`${PANEL} flex h-[88px] shrink-0 flex-col justify-center gap-1.5 border-b-0 border-l border-r-0 border-t-0 px-3 py-2`}
+      style={{ width: LEFT_SIDE_WIDTH }}
+      aria-label="Artifacts shelf"
+    >
+      <div className="flex items-center gap-2">
+        <span className={`${SECTION_LABEL} flex items-center gap-1.5`}>
+          Artifacts
+          {artifacts.length > 0 && (
+            <span className="rounded-full bg-accent/20 px-1 py-0.5 text-[9px] text-accent">
+              {artifacts.length}
+            </span>
+          )}
+        </span>
+        {agentLabel && (
+          <span className="min-w-0 flex-1 truncate font-mono text-[9px] text-ink-faint">
+            {agentLabel}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onTogglePanel}
+          className="ml-auto shrink-0 rounded-lg border border-line/10 bg-white/[0.03] p-1 text-ink-faint transition-colors hover:border-accent/40 hover:text-accent"
+          aria-label={panelExpanded ? "Collapse artifacts" : "Expand artifacts"}
+        >
+          {panelExpanded ? (
+            <ChevronDown className="size-3" />
+          ) : (
+            <ChevronUp className="size-3" />
+          )}
+        </button>
+      </div>
+
+      {artifacts.length === 0 ? (
+        <p className="text-[11px] leading-tight text-ink-faint">No outputs yet</p>
+      ) : (
+        <div className="flex min-w-0 items-center gap-1.5">
+          {lastArtifact && (() => {
+            const Icon = artifactIconFor(lastArtifact.kind);
+            return (
+              <button
+                type="button"
+                onClick={() => onSelectArtifact(lastArtifact.id)}
+                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-line/10 bg-white/[0.03] px-2 py-1.5 text-left transition-colors hover:border-accent/40 hover:bg-white/[0.07]"
+                title={`${lastArtifact.title} · ${lastArtifact.kind}`}
+              >
+                <Icon className="size-3.5 shrink-0 text-accent" />
+                <span className="truncate text-[11px] text-ink">{lastArtifact.title}</span>
+              </button>
+            );
+          })()}
+          {extra > 0 && (
+            <button
+              type="button"
+              onClick={onOpenLedger}
+              className="shrink-0 rounded-lg border border-line/10 bg-white/[0.03] px-2 py-1.5 font-mono text-[10px] text-ink-muted transition-colors hover:border-accent/40 hover:text-ink"
+              title="Open Intel Ledger"
+            >
+              +{extra}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 /** Chat-only column: no background; garden shows through. */
 const HudChatColumn: React.FC<{
@@ -495,7 +741,7 @@ const HudChatColumn: React.FC<{
     <div className="pointer-events-auto flex justify-center">{expandButton}</div>
     {latestAgentReply && (
       <div className="pointer-events-auto relative max-h-[5.5rem] px-1 text-center">
-        <p className="line-clamp-4 text-sm leading-relaxed text-blue-50/80">
+        <p className="line-clamp-4 text-sm leading-relaxed text-accent-strong/85">
           {latestAgentReply}
         </p>
       </div>
@@ -534,9 +780,20 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     onReopenCommand,
     rosterCycleHint,
     onDismissRosterHint,
+    bottomArtifacts,
+    bottomArtifactsLabel,
+    onSelectArtifact,
+    onOpenLedger,
+    allArtifacts,
+    onShowArtifactOnGarden,
+    onOpenArtifact,
   } = props;
 
   const [chatExpanded, setChatExpanded] = useState(false);
+  const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
+  const [cycleFlash, setCycleFlash] = useState(false);
+  const [artifactsPanelExpanded, setArtifactsPanelExpanded] = useState(false);
+  const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
 
   useEffect(() => {
     if (!chatExpanded) return;
@@ -546,6 +803,22 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [chatExpanded]);
+
+  useEffect(() => {
+    if (!artifactsFullscreen) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setArtifactsFullscreen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [artifactsFullscreen]);
+
+  useEffect(() => {
+    if (!selectedMainAgentId) return;
+    setCycleFlash(true);
+    const t = setTimeout(() => setCycleFlash(false), 500);
+    return () => clearTimeout(t);
+  }, [selectedMainAgentId]);
 
   const minimap = useMemo(() => {
     const { panX, panY, zoom, width, height } = viewport;
@@ -570,13 +843,13 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     };
 
     return { toMini, viewRect };
-  }, [berries, viewport]);
+  }, [viewport]);
 
   const expandButton = (
     <button
       type="button"
       onClick={() => setChatExpanded(true)}
-      className="app-region-no-drag pointer-events-auto flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-950/70 px-3 py-1 text-xs text-slate-300 backdrop-blur-md hover:bg-slate-950/90 hover:text-slate-100"
+      className="app-region-no-drag pointer-events-auto flex items-center gap-1.5 rounded-full border border-line/10 bg-surface-0/70 px-3 py-1 font-mono text-[11px] uppercase tracking-wide text-ink-muted backdrop-blur-md transition-colors hover:bg-surface-0/90 hover:text-ink"
       aria-label="Expand chat"
     >
       <ChevronUp className="size-3.5" />
@@ -589,7 +862,7 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
       type="button"
       onClick={() => setChatExpanded(false)}
       onPointerDown={(event) => event.stopPropagation()}
-      className="app-region-no-drag flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-slate-950/90 px-3 py-1.5 text-xs text-slate-200 shadow-lg hover:bg-slate-900"
+      className="app-region-no-drag flex shrink-0 items-center gap-1.5 rounded-full border border-line/10 bg-surface-0/90 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wide text-ink shadow-lift transition-colors hover:bg-surface-1"
       aria-label="Collapse chat"
     >
       <ChevronDown className="size-3.5" />
@@ -606,40 +879,95 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     />
   );
 
-  const rightHud = (
-    <MainAgentRosterPanel
-      roster={mainAgentRoster}
-      selectedMainAgentId={selectedMainAgentId}
-      scope={mainAgentCycleScope}
-      onScopeChange={onMainAgentCycleScopeChange}
-      onSelectMainAgent={onSelectMainAgent}
-      onNewCommand={onNewCommand}
-      onMarkCommandDone={onMarkCommandDone}
-      onReopenCommand={onReopenCommand}
-      rosterCycleHint={rosterCycleHint}
-      onDismissRosterHint={onDismissRosterHint}
-      berryCount={berries.length}
-      plannedWorkRunTitle={plannedWorkRunTitle}
-      onApprovePlan={onApprovePlan}
-      showWorkRunControls={showWorkRunControls}
-      onAdvanceWorkRun={onAdvanceWorkRun}
-      onCompleteWorkRun={onCompleteWorkRun}
-    />
-  );
-
   return (
     <div
       className="pointer-events-none absolute inset-0 z-40 flex flex-col"
       aria-label="Garden HUD chrome"
     >
+      {/* Artifacts fullscreen overlay — covers entire HUD, ESC closes */}
+      {artifactsFullscreen && (
+        <div className="pointer-events-auto absolute inset-4 z-50 flex flex-col overflow-hidden rounded-2xl shadow-panel">
+          <ArtifactRosterPanel
+            artifacts={allArtifacts}
+            onShowOnGarden={onShowArtifactOnGarden}
+            onOpen={onOpenArtifact}
+            headerActions={
+              <button
+                type="button"
+                onClick={() => setArtifactsFullscreen(false)}
+                className="rounded-lg border border-line/10 bg-white/[0.03] p-1 text-ink-faint transition-colors hover:border-accent/40 hover:text-ink"
+                aria-label="Exit full screen"
+              >
+                <X className="size-3.5" />
+              </button>
+            }
+          />
+        </div>
+      )}
+
       <div className="relative min-h-0 flex-1" aria-label="Garden view band">
+        {/* Agents right column — compact chip or expanded roster */}
         <div
           className="pointer-events-none absolute right-3 top-1/2 z-40 flex max-h-full -translate-y-1/2 flex-col"
           style={{ width: GARDEN_RIGHT_HUD_WIDTH }}
           aria-label="Garden right HUD"
         >
-          {rightHud}
+          <MainAgentRosterPanel
+            roster={mainAgentRoster}
+            selectedMainAgentId={selectedMainAgentId}
+            scope={mainAgentCycleScope}
+            onScopeChange={onMainAgentCycleScopeChange}
+            onSelectMainAgent={onSelectMainAgent}
+            onNewCommand={onNewCommand}
+            onMarkCommandDone={onMarkCommandDone}
+            onReopenCommand={onReopenCommand}
+            rosterCycleHint={rosterCycleHint}
+            onDismissRosterHint={onDismissRosterHint}
+            berryCount={berries.length}
+            plannedWorkRunTitle={plannedWorkRunTitle}
+            onApprovePlan={onApprovePlan}
+            showWorkRunControls={showWorkRunControls}
+            onAdvanceWorkRun={onAdvanceWorkRun}
+            onCompleteWorkRun={onCompleteWorkRun}
+            expanded={rightPanelExpanded}
+            onToggleExpanded={() => setRightPanelExpanded((v) => !v)}
+            cycleFlash={cycleFlash}
+          />
         </div>
+
+        {/* Artifacts panel overlay — floats above bottom bar from bottom-right */}
+        {artifactsPanelExpanded && !artifactsFullscreen && (
+          <div
+            className="pointer-events-none absolute bottom-2 right-3 z-40"
+            style={{ width: LEFT_SIDE_WIDTH }}
+          >
+            <ArtifactRosterPanel
+              artifacts={allArtifacts}
+              onShowOnGarden={onShowArtifactOnGarden}
+              onOpen={onOpenArtifact}
+              headerActions={
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setArtifactsFullscreen(true)}
+                    className="rounded-lg border border-line/10 bg-white/[0.03] p-1 text-ink-faint transition-colors hover:border-accent/40 hover:text-accent"
+                    aria-label="Full screen artifacts"
+                  >
+                    <Maximize2 className="size-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setArtifactsPanelExpanded(false)}
+                    className="rounded-lg border border-line/10 bg-white/[0.03] p-1 text-ink-faint transition-colors hover:border-accent/40 hover:text-ink"
+                    aria-label="Collapse artifacts panel"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              }
+            />
+          </div>
+        )}
 
         {chatExpanded && (
           <div
@@ -652,21 +980,25 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col justify-end">
-              <div className="app-region-no-drag pointer-events-auto flex max-h-full min-h-0 flex-col rounded-t-3xl border border-white/10 border-b-0 bg-slate-950/92 shadow-[0_-24px_80px_rgba(2,8,23,0.65)] backdrop-blur-xl">
-                <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-8 py-6">
-                  {MOCK_CHAT_HISTORY.map((message, index) => (
-                    <ChatMessage
-                      key={`mock-${index}`}
-                      role={message.role}
-                      text={message.text}
-                      faded={index < MOCK_CHAT_HISTORY.length - 2}
-                    />
-                  ))}
-                  {latestAgentReply && (
-                    <ChatMessage role="agent" text={latestAgentReply} />
-                  )}
-                </div>
-                <div className="shrink-0 border-t border-white/10 px-4 py-3">
+              <div
+                className={`${PANEL} flex max-h-full min-h-0 flex-col rounded-b-none rounded-t-3xl border-b-0 shadow-sheet`}
+              >
+                <ScrollArea className="min-h-0 flex-1">
+                  <div className="space-y-6 px-8 py-6">
+                    {MOCK_CHAT_HISTORY.map((message, index) => (
+                      <ChatMessage
+                        key={`mock-${index}`}
+                        role={message.role}
+                        text={message.text}
+                        faded={index < MOCK_CHAT_HISTORY.length - 2}
+                      />
+                    ))}
+                    {latestAgentReply && (
+                      <ChatMessage role="agent" text={latestAgentReply} />
+                    )}
+                  </div>
+                </ScrollArea>
+                <div className="shrink-0 border-t border-line/10 px-4 py-3">
                   <CommandInput
                     commandText={commandText}
                     onCommandTextChange={onCommandTextChange}
@@ -680,7 +1012,7 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
       </div>
 
       <div
-        className="pointer-events-none grid w-full shrink-0 items-center border-t border-white/10"
+        className="pointer-events-none grid w-full shrink-0 items-center border-t border-line/10"
         style={{ gridTemplateColumns: `${LEFT_SIDE_WIDTH} 1fr ${LEFT_SIDE_WIDTH}` }}
         aria-label="Garden bottom HUD"
       >
@@ -696,7 +1028,14 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
             />
           )}
         </div>
-        <HudBottomRight />
+        <ArtifactsShelf
+          artifacts={bottomArtifacts}
+          agentLabel={bottomArtifactsLabel}
+          onSelectArtifact={onSelectArtifact}
+          onOpenLedger={onOpenLedger}
+          panelExpanded={artifactsPanelExpanded}
+          onTogglePanel={() => setArtifactsPanelExpanded((v) => !v)}
+        />
       </div>
     </div>
   );
