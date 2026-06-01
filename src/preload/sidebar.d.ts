@@ -40,6 +40,9 @@ interface SidebarAPI {
 
   // Tab information
   getActiveTabInfo: () => Promise<TabInfo | null>;
+
+  // Command bar height (expand/collapse)
+  setCommandBarHeight: (height: number) => Promise<boolean>;
 }
 
 declare global {

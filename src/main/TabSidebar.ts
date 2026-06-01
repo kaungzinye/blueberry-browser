@@ -1,11 +1,17 @@
 import { is } from "@electron-toolkit/utils";
 import { BaseWindow, WebContentsView } from "electron";
 import { join } from "path";
-import { LEFT_RAIL_WIDTH, TOPBAR_HEIGHT } from "./layout";
+import { LEFT_RAIL_WIDTH } from "./layout";
 
-export class TopBar {
+/**
+ * The left, full-height, Arc-like tab rail. Reuses the TopBar renderer
+ * (/topbar/?region=left) and the topbar preload, so it shares the existing
+ * tab IPC (topBarAPI) — no new build entry or preload needed.
+ */
+export class TabSidebar {
   private webContentsView: WebContentsView;
   private baseWindow: BaseWindow;
+  private isVisible: boolean = true;
 
   constructor(baseWindow: BaseWindow) {
     this.baseWindow = baseWindow;
@@ -20,23 +26,20 @@ export class TopBar {
         preload: join(__dirname, "../preload/topbar.js"),
         nodeIntegration: false,
         contextIsolation: true,
-        sandbox: false, // Need to disable sandbox for preload to work
+        sandbox: false,
       },
     });
 
-    // Load the TopBar React app (top region = URL/toolbar only; tabs moved
-    // to the left rail).
     if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-      // In development, load through Vite dev server
-      const topbarUrl = new URL(
-        "/topbar/?region=top",
+      const url = new URL(
+        "/topbar/?region=left",
         process.env["ELECTRON_RENDERER_URL"]
       );
-      webContentsView.webContents.loadURL(topbarUrl.toString());
+      webContentsView.webContents.loadURL(url.toString());
     } else {
       webContentsView.webContents.loadFile(
         join(__dirname, "../renderer/topbar.html"),
-        { search: "region=top" }
+        { search: "region=left" }
       );
     }
 
@@ -44,26 +47,36 @@ export class TopBar {
   }
 
   private setupBounds(): void {
+    if (!this.isVisible) return;
     const bounds = this.baseWindow.getBounds();
-    // Slim URL/toolbar, to the right of the left tab rail.
     this.webContentsView.setBounds({
-      x: LEFT_RAIL_WIDTH,
+      x: 0,
       y: 0,
-      width: Math.max(0, bounds.width - LEFT_RAIL_WIDTH),
-      height: TOPBAR_HEIGHT,
+      width: LEFT_RAIL_WIDTH,
+      height: bounds.height,
     });
   }
 
   updateBounds(): void {
+    if (this.isVisible) {
+      this.setupBounds();
+    } else {
+      this.webContentsView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
+  }
+
+  show(): void {
+    this.isVisible = true;
     this.setupBounds();
   }
 
   hide(): void {
-    this.webContentsView.setVisible(false);
+    this.isVisible = false;
+    this.webContentsView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
   }
 
-  show(): void {
-    this.webContentsView.setVisible(true);
+  getIsVisible(): boolean {
+    return this.isVisible;
   }
 
   get view(): WebContentsView {

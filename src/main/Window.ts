@@ -2,7 +2,9 @@ import { BaseWindow, shell } from "electron";
 import { Tab } from "./Tab";
 import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
+import { TabSidebar } from "./TabSidebar";
 import { GardenView } from "./GardenView";
+import { LEFT_RAIL_WIDTH, TOPBAR_HEIGHT } from "./layout";
 
 export class Window {
   private _baseWindow: BaseWindow;
@@ -11,6 +13,7 @@ export class Window {
   private tabCounter: number = 0;
   private _topBar: TopBar;
   private _sideBar: SideBar;
+  private _tabSidebar: TabSidebar;
   private _garden: GardenView;
 
   constructor() {
@@ -28,8 +31,10 @@ export class Window {
     this._baseWindow.setMinimumSize(1000, 800);
 
     this._topBar = new TopBar(this._baseWindow);
+    this._tabSidebar = new TabSidebar(this._baseWindow);
     this._garden = new GardenView(this._baseWindow);
     this._sideBar = new SideBar(this._baseWindow);
+    // Command bar starts hidden; shown when tab view is active.
     this._sideBar.hide();
 
     // Set the window reference on the LLM client to avoid circular dependency
@@ -43,6 +48,7 @@ export class Window {
     this._baseWindow.on("resize", () => {
       this.updateTabBounds();
       this._topBar.updateBounds();
+      this._tabSidebar.updateBounds();
       this._garden.updateBounds();
       this._sideBar.updateBounds();
       // Notify renderer of resize through active tab
@@ -102,13 +108,14 @@ export class Window {
     // Add the tab's WebContentsView to the window
     this._baseWindow.contentView.addChildView(tab.view);
 
-    // Set the bounds to fill the window below the topbar and to the left of sidebar
+    // Fill the area right of the tab rail, below the top bar, above the command bar.
     const bounds = this._baseWindow.getBounds();
+    const cmdBarH = this._sideBar?.getIsVisible() ? this._sideBar.getCurrentHeight() : 0;
     tab.view.setBounds({
-      x: 0,
-      y: 88, // Start below the topbar
-      width: bounds.width - 400, // Subtract sidebar width
-      height: bounds.height - 88, // Subtract topbar height
+      x: LEFT_RAIL_WIDTH,
+      y: TOPBAR_HEIGHT,
+      width: Math.max(0, bounds.width - LEFT_RAIL_WIDTH),
+      height: Math.max(0, bounds.height - TOPBAR_HEIGHT - cmdBarH),
     });
 
     // Store the tab
@@ -128,13 +135,16 @@ export class Window {
   openTabFromGarden(url: string): Tab {
     const tab = this.createTab(url);
     this.switchActiveTab(tab.id);
-    this._garden.hide();
+    // Reveal the browser chrome (top bar + left tab rail) along with the tab.
+    this.hideGarden();
     return tab;
   }
 
   showGarden(): void {
     this.tabsMap.forEach((tab) => tab.hide());
     this._topBar.hide();
+    this._tabSidebar.hide();
+    this._sideBar.hide();
     this._garden.show();
     this._garden.updateBounds();
   }
@@ -143,6 +153,10 @@ export class Window {
     this._garden.hide();
     this._topBar.show();
     this._topBar.updateBounds();
+    this._tabSidebar.show();
+    this._tabSidebar.updateBounds();
+    this._sideBar.show();
+    this._sideBar.updateBounds();
     if (this.activeTab) {
       this.activeTab.show();
       this.updateTabBounds();
@@ -259,25 +273,31 @@ export class Window {
     return this._baseWindow.getBounds();
   }
 
-  // Handle window resize to update tab bounds
   private updateTabBounds(): void {
     const bounds = this._baseWindow.getBounds();
-    // Only subtract sidebar width if it's visible
-    const sidebarWidth = this._sideBar.getIsVisible() ? 400 : 0;
+    const cmdBarH = this._sideBar.getIsVisible() ? this._sideBar.getCurrentHeight() : 0;
 
     this.tabsMap.forEach((tab) => {
       tab.view.setBounds({
-        x: 0,
-        y: 88, // Start below the topbar
-        width: bounds.width - sidebarWidth,
-        height: bounds.height - 88, // Subtract topbar height
+        x: LEFT_RAIL_WIDTH,
+        y: TOPBAR_HEIGHT,
+        width: Math.max(0, bounds.width - LEFT_RAIL_WIDTH),
+        height: Math.max(0, bounds.height - TOPBAR_HEIGHT - cmdBarH),
       });
     });
+  }
+
+  /** Called by EventManager when the command bar resizes (expand/collapse). */
+  updateCommandBarHeight(height: number): void {
+    this._sideBar.setCommandBarHeight(height);
+    this.updateTabBounds();
   }
 
   // Public method to update all bounds when sidebar is toggled
   updateAllBounds(): void {
     this.updateTabBounds();
+    this._topBar.updateBounds();
+    this._tabSidebar.updateBounds();
     this._sideBar.updateBounds();
   }
 

@@ -52,6 +52,10 @@ const sidebarAPI = {
 
   // Tab information
   getActiveTabInfo: () => electronAPI.ipcRenderer.invoke("get-active-tab-info"),
+
+  // Command bar height (expand = ~400, collapse = 56)
+  setCommandBarHeight: (height: number) =>
+    electronAPI.ipcRenderer.invoke("sidebar-set-height", height),
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to
