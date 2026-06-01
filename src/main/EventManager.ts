@@ -1,5 +1,7 @@
 import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
+import { AgentRunner } from "./AgentRunner";
+import type { RunCommandOpts } from "./AgentRunner";
 
 export class EventManager {
   private mainWindow: Window;
@@ -18,6 +20,9 @@ export class EventManager {
 
     // Page content events
     this.handlePageContentEvents();
+
+    // Agent events
+    this.handleAgentEvents();
 
     // Garden events
     this.handleGardenEvents();
@@ -176,6 +181,12 @@ export class EventManager {
     ipcMain.handle("sidebar-get-messages", () => {
       return this.mainWindow.sidebar.client.getMessages();
     });
+
+    // Command bar height (expand / collapse from renderer)
+    ipcMain.handle("sidebar-set-height", (_, height: number) => {
+      this.mainWindow.updateCommandBarHeight(height);
+      return true;
+    });
   }
 
   private handlePageContentEvents(): void {
@@ -211,6 +222,26 @@ export class EventManager {
         return this.mainWindow.activeTab.url;
       }
       return null;
+    });
+  }
+
+  private handleAgentEvents(): void {
+    // Check whether a real API key is configured
+    ipcMain.handle("garden-has-api-key", () => {
+      const provider = process.env.LLM_PROVIDER?.toLowerCase() ?? "anthropic";
+      return provider === "openai"
+        ? Boolean(process.env.OPENAI_API_KEY)
+        : Boolean(process.env.ANTHROPIC_API_KEY);
+    });
+
+    // Start a real agent Work Run
+    ipcMain.handle("garden-run-command", async (_, opts: RunCommandOpts) => {
+      const runner = new AgentRunner(this.mainWindow);
+      // Fire-and-forget: patches stream to garden renderer via AGENT_PATCH_CHANNEL
+      runner.run(opts).catch((err) => {
+        console.error("[EventManager] garden-run-command error:", err);
+      });
+      return { started: true };
     });
   }
 

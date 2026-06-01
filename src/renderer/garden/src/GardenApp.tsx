@@ -14,6 +14,11 @@ import {
   Globe2,
   Sparkles,
 } from "lucide-react";
+import { Companion } from "./components/Companion";
+import { TelemetryLayer } from "./components/TelemetryLayer";
+import { clipForAgentState } from "./domain/telemetryVisuals";
+import { Button } from "./components/ui/button";
+import { Badge } from "./components/ui/badge";
 import {
   fadeMessageOntoGarden,
   FadedGardenEcho,
@@ -35,10 +40,11 @@ import {
   getLedgerEntries,
   getReaderContent,
   getVisibleBerries,
-  hasActiveWorkRun,
   showBerryOnGarden,
   submitCommand,
+  TelemetryEvent,
 } from "./domain/gardenDomain";
+import { applyPatch } from "./domain/gardenPatches";
 import {
   cycleMainAgentId,
   getMainAgentRoster,
@@ -79,6 +85,7 @@ export const GardenApp: React.FC = () => {
   const [readerBerryId, setReaderBerryId] = useState<string | null>(null);
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [latestAgentReply, setLatestAgentReply] = useState<string | null>(null);
+  const [hasRealAgent, setHasRealAgent] = useState(false);
   const [gardenEchoes, setGardenEchoes] = useState<FadedGardenEcho[]>([]);
   const [viewport, setViewport] = useState<ViewportTransform>({
     panX: 0,
@@ -121,6 +128,35 @@ export const GardenApp: React.FC = () => {
   );
   const visibleBerries = getVisibleBerries(state);
   const ledgerEntries = getLedgerEntries(state);
+
+  // All artifact berries (non-tab, across all work runs) for the Artifact Roster panel.
+  const allArtifacts = useMemo(
+    () =>
+      getLedgerEntries(state).filter(
+        (entry) => entry.kind !== "tab" && !entry.browserTabId
+      ),
+    [state]
+  );
+
+  // Bottom-right HUD "Outputs" shelf: the Artifact Berries the selected Main
+  // Agent's Work Run produced (its RTS-style inventory). Tabs are excluded —
+  // they live on the map / left sidebar, not in the output shelf.
+  const selectedAgentArtifacts = useMemo(() => {
+    const runId = selectedCommand?.workRunId;
+    if (!runId) return [];
+    return state.berries.filter(
+      (berry) =>
+        berry.workRunId === runId &&
+        berry.kind !== "tab" &&
+        !berry.browserTabId
+    );
+  }, [state.berries, selectedCommand?.workRunId]);
+
+  const selectedAgentIndex = mainAgentRoster.findIndex(
+    (entry) => entry.agent.id === selectedMainAgentId
+  );
+  const selectedAgentLabel =
+    selectedAgentIndex >= 0 ? `Main Agent ${selectedAgentIndex + 1}` : undefined;
   const readerBerry = state.berries.find((berry) => berry.id === readerBerryId);
   const readerContent = readerBerry ? getReaderContent(readerBerry) : null;
 
@@ -147,6 +183,19 @@ export const GardenApp: React.FC = () => {
     }
     setSelectedMainAgentId(mainAgentRoster.at(-1)?.agent.id ?? null);
   }, [mainAgentRoster, selectedMainAgentId]);
+
+  // Check once on mount whether a real API key is configured.
+  useEffect(() => {
+    window.gardenAPI?.hasApiKey().then(setHasRealAgent).catch(() => {});
+  }, []);
+
+  // Stream GardenStatePatch events from the agent runner and apply them live.
+  useEffect(() => {
+    const unsub = window.gardenAPI?.onAgentPatch((patch) => {
+      setState((current) => applyPatch(current, patch));
+    });
+    return () => unsub?.();
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -197,7 +246,8 @@ export const GardenApp: React.FC = () => {
   ]);
 
   useEffect(() => {
-    if (!runningWorkRun) return;
+    // Skip the demo auto-advance when a real agent is doing live work.
+    if (!runningWorkRun || hasRealAgent) return;
 
     const timer = window.setInterval(() => {
       setState((current) => {
@@ -210,7 +260,7 @@ export const GardenApp: React.FC = () => {
     }, AUTO_ADVANCE_MS);
 
     return () => window.clearInterval(timer);
-  }, [runningWorkRun?.id, runningWorkRun?.status, runningWorkRun?.step]);
+  }, [runningWorkRun?.id, runningWorkRun?.status, runningWorkRun?.step, hasRealAgent]);
 
   useEffect(() => {
     if (!mainAgent || mainAgent.state === "idle") return;
@@ -319,8 +369,20 @@ export const GardenApp: React.FC = () => {
   };
 
   const handleApprovePlan = (): void => {
-    if (!plannedWorkRun) return;
-    setState((current) => approveWorkRun(current, plannedWorkRun.id));
+    if (!plannedWorkRun || !selectedCommand || !selectedMainAgentId) return;
+
+    if (hasRealAgent) {
+      // Real mode: agent runner streams patches; skip the demo state machine.
+      window.gardenAPI?.runCommand({
+        commandId: selectedCommand.id,
+        commandText: selectedCommand.text,
+        agentId: selectedMainAgentId,
+        workRunId: plannedWorkRun.id,
+      });
+    } else {
+      // Demo mode: deterministic state machine with hardcoded steps.
+      setState((current) => approveWorkRun(current, plannedWorkRun.id));
+    }
   };
 
   const handleOpenBerry = (berry: Berry): void => {
@@ -362,14 +424,30 @@ export const GardenApp: React.FC = () => {
     setLedgerOpen(false);
   };
 
+  const handleFocusArtifact = (berryId: string): void => {
+    const berry = state.berries.find((candidate) => candidate.id === berryId);
+    if (!berry) return;
+    if (!berry.onMap) {
+      setState((current) => showBerryOnGarden(current, berryId));
+    }
+    setSelectedBerryId(berryId);
+    if (berry.kind === "report") setReaderBerryId(berryId);
+  };
+
+  const latestTelemetry = state.telemetry.at(-1);
+  const companionClip = clipForAgentState(mainAgent?.state, latestTelemetry?.kind);
+
   return (
-    <main className="relative h-full w-full overflow-hidden bg-[#031633] text-slate-100">
+    <main className="relative h-full w-full overflow-hidden bg-garden-base text-ink">
       <GardenWorld
         berries={visibleBerries}
+        telemetry={state.telemetry}
         gardenEchoes={gardenEchoes}
         selectedBerryId={selectedBerryId}
         agentPosition={agentPosition}
         showMapAgent={Boolean(runningWorkRun)}
+        companionClip={companionClip}
+        companionBlocked={mainAgent?.state === "blocked"}
         onSelectBerry={handleSelectBerry}
         onOpenBerry={handleOpenBerry}
         onViewportChange={setViewport}
@@ -400,6 +478,13 @@ export const GardenApp: React.FC = () => {
         onReopenCommand={handleReopenCommand}
         rosterCycleHint={rosterCycleHint}
         onDismissRosterHint={() => setRosterCycleHint(null)}
+        bottomArtifacts={selectedAgentArtifacts}
+        bottomArtifactsLabel={selectedAgentLabel}
+        onSelectArtifact={handleFocusArtifact}
+        onOpenLedger={() => setLedgerOpen(true)}
+        allArtifacts={allArtifacts}
+        onShowArtifactOnGarden={handleShowOnGarden}
+        onOpenArtifact={handleFocusArtifact}
       />
 
       {ledgerOpen && (
@@ -426,10 +511,13 @@ const MAX_ZOOM = 2.5;
 
 interface GardenWorldProps {
   berries: Berry[];
+  telemetry: TelemetryEvent[];
   gardenEchoes: FadedGardenEcho[];
   selectedBerryId: string | null;
   agentPosition: { x: number; y: number };
   showMapAgent: boolean;
+  companionClip: ReturnType<typeof clipForAgentState>;
+  companionBlocked: boolean;
   onSelectBerry: (id: string) => void;
   onOpenBerry: (berry: Berry) => void;
   onViewportChange: (viewport: ViewportTransform) => void;
@@ -437,10 +525,13 @@ interface GardenWorldProps {
 
 const GardenWorld: React.FC<GardenWorldProps> = ({
   berries,
+  telemetry,
   gardenEchoes,
   selectedBerryId,
   agentPosition,
   showMapAgent,
+  companionClip,
+  companionBlocked,
   onSelectBerry,
   onOpenBerry,
   onViewportChange,
@@ -545,7 +636,7 @@ const GardenWorld: React.FC<GardenWorldProps> = ({
   return (
     <section
       ref={viewportRef}
-      className={`absolute inset-0 touch-none select-none overflow-hidden bg-[#031633] ${
+      className={`garden-field absolute inset-0 touch-none select-none overflow-hidden ${
         isPanning ? "cursor-grabbing" : "cursor-grab"
       }`}
       onPointerDown={handlePointerDown}
@@ -561,51 +652,25 @@ const GardenWorld: React.FC<GardenWorldProps> = ({
         }}
       >
         <div
-          className="pointer-events-none absolute bg-[#041a38]/40"
-          style={{
-            left: -50000,
-            top: -50000,
-            width: 100000,
-            height: 100000,
-          }}
-        />
-        <div
-          className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-blue-200/40 bg-blue-200/20"
+          className="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/40 bg-accent/15"
           style={{ left: 0, top: 0 }}
           aria-hidden
         />
 
-        <svg className="pointer-events-none absolute left-0 top-0 h-[2000px] w-[2000px] -translate-x-1/2 -translate-y-1/2">
-          <path
-            className="data-flow"
-            d="M 390 285 C 520 340, 670 300, 820 265"
-            fill="none"
-            stroke="rgba(125,211,252,0.58)"
-            strokeLinecap="round"
-            strokeWidth="3"
-          />
-          <path
-            d="M 690 320 C 760 410, 830 435, 880 505"
-            fill="none"
-            stroke="rgba(191,219,254,0.25)"
-            strokeDasharray="8 12"
-            strokeLinecap="round"
-            strokeWidth="2"
-          />
-        </svg>
+        <TelemetryLayer berries={berries} telemetry={telemetry} />
 
         {gardenEchoes.map((echo) => (
           <div
             key={echo.id}
             className={`pointer-events-none absolute max-w-[220px] rounded-2xl border px-3 py-2 text-xs leading-relaxed backdrop-blur-sm ${
               echo.role === "user"
-                ? "border-white/5 bg-slate-950/20 text-slate-400/70"
-                : "border-blue-200/10 bg-blue-950/25 text-blue-100/50"
+                ? "border-line/5 bg-surface-0/30 text-ink-faint/70"
+                : "border-accent/10 bg-surface-1/30 text-accent/50"
             }`}
             style={{ left: echo.x, top: echo.y }}
           >
-            <span className="mb-1 block text-[10px] uppercase tracking-wider opacity-60">
-              {echo.role === "user" ? "You" : "Blue"}
+            <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider opacity-60">
+              {echo.role === "user" ? "You" : "Main Agent"}
             </span>
             <span className="line-clamp-3">{echo.text}</span>
           </div>
@@ -623,32 +688,32 @@ const GardenWorld: React.FC<GardenWorldProps> = ({
 
         {showMapAgent && (
           <div
-            className="absolute z-10 transition-all duration-700 ease-out"
+            className="absolute z-10 -translate-x-1/2 -translate-y-1/2 transition-all duration-700 ease-out"
             style={{ left: agentPosition.x, top: agentPosition.y }}
           >
-            <div className="agent-bob relative">
-              <div className="pulse-ring relative flex size-16 items-center justify-center rounded-full bg-blue-200/15 shadow-[0_0_32px_rgba(96,165,250,0.55)]">
-                <div className="relative flex h-12 w-9 flex-col items-center">
-                  <div className="h-5 w-5 rounded-full bg-blue-100 shadow-[0_0_18px_rgba(191,219,254,0.9)]" />
-                  <div className="mt-1 h-6 w-8 rounded-b-2xl rounded-t-lg bg-blue-300" />
-                </div>
-              </div>
-            </div>
+            <Companion
+              clip={companionClip}
+              role="main"
+              blocked={companionBlocked}
+              size={150}
+            />
           </div>
         )}
       </div>
 
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
         onClick={centerViewport}
         onPointerDown={(event) => event.stopPropagation()}
-        className="absolute bottom-36 z-20 flex items-center gap-2 rounded-2xl border border-white/15 bg-slate-950/75 px-3 py-2 text-sm text-slate-100 shadow-lg backdrop-blur hover:bg-slate-900/90"
+        className="absolute bottom-36 z-20 gap-2 bg-surface-1/80 backdrop-blur"
         style={{ right: `calc(${GARDEN_RIGHT_HUD_WIDTH} + 1rem)` }}
         title="Center garden (origin)"
       >
-        <Crosshair className="size-4 text-blue-200" />
+        <Crosshair className="size-4 text-accent" />
         Center
-      </button>
+      </Button>
     </section>
   );
 };
@@ -672,13 +737,13 @@ const BerryCard: React.FC<BerryCardProps> = ({
   const Icon = berryIcon[berry.kind];
   const tabBerry = isTabBerry(berry);
 
-  const className = `absolute rounded-3xl border p-4 text-left shadow-2xl ${
+  const className = `absolute rounded-3xl border p-4 text-left shadow-panel backdrop-blur-md ${
     tabBerry
-      ? "pointer-events-none cursor-default border-white/10 bg-white/5 opacity-90"
-      : `transition-all hover:-translate-y-1 ${
+      ? "pointer-events-none cursor-default border-line/10 bg-surface-1/55 opacity-90"
+      : `transition-all hover:-translate-y-0.5 ${
           selected
-            ? "border-blue-200 bg-blue-200/18"
-            : "border-white/10 bg-white/9 hover:border-blue-200/40"
+            ? "border-accent/60 bg-surface-2/80 ring-1 ring-accent/40"
+            : "border-line/10 bg-surface-1/70 hover:border-accent/30"
         }`
   }`;
 
@@ -693,29 +758,29 @@ const BerryCard: React.FC<BerryCardProps> = ({
     <>
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="rounded-xl bg-blue-200/15 p-2 text-blue-100">
+          <div className="rounded-xl bg-accent/12 p-2 text-accent">
             <Icon className="size-4" />
           </div>
-          <span className="text-xs uppercase tracking-[0.18em] text-blue-100/70">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-faint">
             {berry.kind}
           </span>
         </div>
-        <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-200">
+        <Badge variant={berry.status === "complete" ? "active" : "neutral"}>
           {berry.status}
-        </span>
+        </Badge>
       </div>
-      <h3 className="line-clamp-2 text-lg font-semibold text-white">
+      <h3 className="line-clamp-2 font-display text-lg font-semibold text-ink">
         {berry.title}
       </h3>
-      <p className="mt-1 text-sm text-slate-300">{berry.subtitle}</p>
+      <p className="mt-1 text-sm text-ink-muted">{berry.subtitle}</p>
       {berry.screenshotDataUrl ? (
         <img
           src={berry.screenshotDataUrl}
           alt=""
-          className="mt-4 h-14 w-full rounded-2xl border border-white/10 object-cover object-top"
+          className="mt-4 h-14 w-full rounded-2xl border border-line/10 object-cover object-top"
         />
       ) : (
-        <div className="mt-4 h-14 rounded-2xl border border-white/10 bg-blue-950/40" />
+        <div className="mt-4 h-14 rounded-2xl border border-line/10 bg-surface-0/50" />
       )}
     </>
   );
