@@ -1,0 +1,46 @@
+/**
+ * Blueberry Garden design tokens — "clean product dark".
+ *
+ * Flat deep-blue canvas, solid blue-grey surfaces, crisp hairline borders,
+ * a single indigo-blue accent, no glow, no gradients. System fonts only.
+ *
+ * Colors are space-separated RGB triplets so Tailwind can apply alpha via
+ * `rgb(var(--token) / <alpha-value>)` (see tailwind.config.js).
+ */
+
+:root {
+  /* Canvas — flat deep blue. */
+  --garden-base: 14 26 51; /* #0e1a33 */
+  --garden-mid: 14 26 51; /* flat (no gradient) */
+  --garden-core: 14 26 51;
+
+  /* Surfaces — solid, blue-grey, stepped above the canvas. */
+  --surface-0: 20 31 58; /* #141f3a base chrome */
+  --surface-1: 24 35 63; /* #18233f panels */
+  --surface-2: 31 44 77; /* #1f2c4d raised */
+  --surface-3: 40 56 97; /* #283861 hover / controls */
+
+  /* Text. */
+  --ink: 231 236 246; /* #e7ecf6 */
+  --ink-muted: 148 163 194; /* #94a3c2 */
+  --ink-faint: 100 113 143; /* #64718f */
+
+  /* Hairline borders (used at low alpha). */
+  --line: 143 160 196; /* #8fa0c4 */
+
+  /* Single accent — indigo-blue. */
+  --accent: 91 140 255; /* #5b8cff */
+  --accent-strong: 125 163 255; /* #7da3ff */
+
+  /* Telemetry kind palette — clean, distinct hues that read on deep blue. */
+  --tm-intent: 124 140 255; /* indigo  #7c8cff */
+  --tm-action: 76 168 255; /* blue    #4ca8ff */
+  --tm-observation: 56 189 248; /* sky #38bdf8 */
+  --tm-decision: 167 139 250; /* violet #a78bfa */
+  --tm-tool: 45 212 191; /* teal     #2dd4bf */
+  --tm-write: 52 211 153; /* emerald  #34d399 */
+  --tm-complete: 74 222 128; /* green   #4ade80 */
+  --tm-blocker: 251 191 36; /* amber    #fbbf24 */
+
+  --radius: 0.75rem;
+}

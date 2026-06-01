@@ -10,6 +10,9 @@ import {
   X,
 } from "lucide-react";
 import { LedgerEntry } from "../domain/gardenDomain";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { ScrollArea } from "./ui/scroll-area";
 
 const kindIcon = {
   tab: Globe2,
@@ -34,13 +37,13 @@ export const IntelLedgerStrip: React.FC<IntelLedgerStripProps> = ({
   <button
     type="button"
     onClick={onToggle}
-    className="mb-3 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-left text-sm text-slate-200 hover:bg-white/10"
+    className="mb-3 flex w-full items-center justify-between rounded-2xl border border-line/10 bg-white/[0.03] px-4 py-2 text-left text-sm text-ink transition-colors hover:bg-white/[0.06]"
   >
     <span>
       Ledger · {entries.length} artifact{entries.length === 1 ? "" : "s"}
     </span>
-    <span className="text-xs text-blue-200">
-      {expanded ? "Hide" : "Cmd+I"}
+    <span className="font-mono text-xs text-accent">
+      {expanded ? "Hide" : "⌘I"}
     </span>
   </button>
 );
@@ -64,72 +67,70 @@ export const IntelLedgerOverlay: React.FC<IntelLedgerOverlayProps> = ({
   }, {});
 
   return (
-    <div className="absolute inset-0 z-40 flex items-end justify-center bg-slate-950/70 p-6 backdrop-blur-sm">
-      <section className="max-h-[78vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-white/10 bg-slate-950/95 shadow-2xl">
-        <header className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+    <div className="absolute inset-0 z-40 flex items-end justify-center bg-surface-0/70 p-6 backdrop-blur-sm">
+      <section className="flex max-h-[78vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-line/10 bg-surface-1/95 shadow-panel">
+        <header className="flex items-center justify-between border-b border-line/10 px-5 py-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.28em] text-blue-200/70">
+            <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-accent/70">
               Intel Ledger
             </p>
-            <h2 className="text-xl font-semibold text-white">
+            <h2 className="font-display text-xl font-semibold text-ink">
               Blueberry Sales Leads
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-white/10 p-2 text-slate-300 hover:bg-white/10"
-          >
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
             <X className="size-4" />
-          </button>
+          </Button>
         </header>
 
-        <div className="overflow-y-auto px-5 py-4">
-          {Object.entries(grouped).map(([workRunTitle, workEntries]) => (
-            <div key={workRunTitle} className="mb-6">
-              <h3 className="mb-3 text-sm font-medium text-blue-100">
-                {workRunTitle}
-              </h3>
-              <div className="space-y-2">
-                {workEntries.map((entry) => {
-                  const Icon = kindIcon[entry.kind];
-                  return (
-                    <div
-                      key={entry.id}
-                      className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
-                    >
-                      <div className="rounded-xl bg-blue-200/10 p-2 text-blue-100">
-                        <Icon className="size-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-white">{entry.title}</div>
-                        <div className="text-xs text-slate-400">
-                          {entry.subtitle}
-                          {entry.filePath ? ` · ${entry.filePath}` : ""}
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="px-5 py-4">
+            {Object.entries(grouped).map(([workRunTitle, workEntries]) => (
+              <div key={workRunTitle} className="mb-6">
+                <h3 className="mb-3 text-sm font-medium text-accent-strong">
+                  {workRunTitle}
+                </h3>
+                <div className="space-y-2">
+                  {workEntries.map((entry) => {
+                    const Icon = kindIcon[entry.kind];
+                    return (
+                      <div
+                        key={entry.id}
+                        className="flex items-center gap-3 rounded-2xl border border-line/10 bg-white/[0.03] px-4 py-3"
+                      >
+                        <div className="rounded-xl bg-accent/12 p-2 text-accent">
+                          <Icon className="size-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-ink">{entry.title}</div>
+                          <div className="text-xs text-ink-muted">
+                            {entry.subtitle}
+                            {entry.filePath ? ` · ${entry.filePath}` : ""}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {!entry.onMap && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onShowOnGarden(entry.id)}
+                            >
+                              <MapPin className="size-3" />
+                              Show on Garden
+                            </Button>
+                          )}
+                          <Badge variant={entry.onMap ? "accent" : "neutral"}>
+                            {entry.onMap ? "On map" : "Ledger"}
+                          </Badge>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {!entry.onMap && (
-                          <button
-                            type="button"
-                            onClick={() => onShowOnGarden(entry.id)}
-                            className="rounded-xl border border-white/10 px-3 py-2 text-xs text-slate-200 hover:bg-white/10"
-                          >
-                            <MapPin className="mr-1 inline size-3" />
-                            Show on Garden
-                          </button>
-                        )}
-                        <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-300">
-                          {entry.onMap ? "On map" : "Ledger"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </ScrollArea>
       </section>
     </div>
   );

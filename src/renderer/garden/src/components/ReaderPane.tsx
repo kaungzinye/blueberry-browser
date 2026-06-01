@@ -1,6 +1,7 @@
 import React from "react";
 import { ArrowLeft, FileText } from "lucide-react";
 import { Berry } from "../domain/gardenDomain";
+import { Button } from "./ui/button";
 
 interface ReaderPaneProps {
   berry: Berry;
@@ -13,18 +14,14 @@ export const ReaderPane: React.FC<ReaderPaneProps> = ({
   content,
   onBack,
 }) => (
-  <section className="absolute inset-0 z-40 flex flex-col bg-[#020817]/95 backdrop-blur-xl">
-    <header className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-      <button
-        type="button"
-        onClick={onBack}
-        className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sm text-slate-100 hover:bg-white/15"
-      >
+  <section className="absolute inset-0 z-40 flex flex-col bg-surface-0/96 backdrop-blur-xl">
+    <header className="flex items-center justify-between border-b border-line/10 px-6 py-4">
+      <Button variant="outline" size="md" onClick={onBack}>
         <ArrowLeft className="size-4" />
         Back to Garden
-      </button>
-      <div className="flex items-center gap-2 text-sm text-slate-300">
-        <FileText className="size-4 text-blue-200" />
+      </Button>
+      <div className="flex items-center gap-2 text-sm text-ink-muted">
+        <FileText className="size-4 text-accent" />
         <span>{berry.title}</span>
       </div>
     </header>
@@ -39,14 +36,14 @@ const ReaderMarkdown: React.FC<{ content: string }> = ({ content }) => {
   const blocks = content.trim().split(/\n\n+/);
 
   return (
-    <div className="space-y-4 text-slate-100">
+    <div className="space-y-4 text-ink">
       {blocks.map((block, index) => {
         const trimmed = block.trim();
         if (!trimmed) return null;
 
         if (trimmed.startsWith("# ")) {
           return (
-            <h1 key={index} className="text-3xl font-semibold">
+            <h1 key={index} className="font-display text-3xl font-semibold">
               {trimmed.slice(2)}
             </h1>
           );
@@ -54,7 +51,10 @@ const ReaderMarkdown: React.FC<{ content: string }> = ({ content }) => {
 
         if (trimmed.startsWith("## ")) {
           return (
-            <h2 key={index} className="pt-2 text-xl font-semibold text-blue-100">
+            <h2
+              key={index}
+              className="pt-2 font-display text-xl font-semibold text-accent-strong"
+            >
               {trimmed.slice(3)}
             </h2>
           );
@@ -63,7 +63,7 @@ const ReaderMarkdown: React.FC<{ content: string }> = ({ content }) => {
         if (trimmed.startsWith("- ")) {
           const items = trimmed.split("\n").map((line) => line.replace(/^- /, ""));
           return (
-            <ul key={index} className="list-disc space-y-2 pl-6 text-slate-300">
+            <ul key={index} className="list-disc space-y-2 pl-6 text-ink-muted">
               {items.map((item) => (
                 <li key={item}>{item}</li>
               ))}
@@ -72,7 +72,7 @@ const ReaderMarkdown: React.FC<{ content: string }> = ({ content }) => {
         }
 
         return (
-          <p key={index} className="leading-7 text-slate-300">
+          <p key={index} className="leading-7 text-ink-muted">
             {trimmed}
           </p>
         );

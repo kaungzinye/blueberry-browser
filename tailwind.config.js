@@ -2,6 +2,14 @@
 module.exports = {
   darkMode: ["class"],
   content: ["./src/renderer/**/*.{js,ts,jsx,tsx,html}"],
+  // Telemetry color classes are built by interpolation in telemetryVisuals.ts,
+  // so Tailwind's content scan can't see them — safelist the base classes.
+  safelist: [
+    {
+      pattern:
+        /(text|bg|ring|border|stroke|fill)-tm-(intent|action|observation|decision|tool|write|complete|blocker)/,
+    },
+  ],
   theme: {
     container: {
       center: true,
@@ -33,10 +41,6 @@ module.exports = {
           DEFAULT: "rgb(var(--muted) / <alpha-value>)",
           foreground: "rgb(var(--muted-foreground) / <alpha-value>)",
         },
-        accent: {
-          DEFAULT: "rgb(var(--accent) / <alpha-value>)",
-          foreground: "rgb(var(--accent-foreground) / <alpha-value>)",
-        },
         popover: {
           DEFAULT: "rgb(var(--popover) / <alpha-value>)",
           foreground: "rgb(var(--popover-foreground) / <alpha-value>)",
@@ -45,6 +49,69 @@ module.exports = {
           DEFAULT: "rgb(var(--card) / <alpha-value>)",
           foreground: "rgb(var(--card-foreground) / <alpha-value>)",
         },
+
+        // Garden design tokens (see src/renderer/garden/src/styles/tokens.css).
+        surface: {
+          0: "rgb(var(--surface-0) / <alpha-value>)",
+          1: "rgb(var(--surface-1) / <alpha-value>)",
+          2: "rgb(var(--surface-2) / <alpha-value>)",
+          3: "rgb(var(--surface-3) / <alpha-value>)",
+        },
+        garden: {
+          base: "rgb(var(--garden-base) / <alpha-value>)",
+          mid: "rgb(var(--garden-mid) / <alpha-value>)",
+          core: "rgb(var(--garden-core) / <alpha-value>)",
+        },
+        ink: {
+          DEFAULT: "rgb(var(--ink) / <alpha-value>)",
+          muted: "rgb(var(--ink-muted) / <alpha-value>)",
+          faint: "rgb(var(--ink-faint) / <alpha-value>)",
+        },
+        line: "rgb(var(--line) / <alpha-value>)",
+        accent: {
+          DEFAULT: "rgb(var(--accent) / <alpha-value>)",
+          strong: "rgb(var(--accent-strong) / <alpha-value>)",
+          foreground: "rgb(var(--accent-foreground) / <alpha-value>)",
+        },
+        tm: {
+          intent: "rgb(var(--tm-intent) / <alpha-value>)",
+          action: "rgb(var(--tm-action) / <alpha-value>)",
+          observation: "rgb(var(--tm-observation) / <alpha-value>)",
+          decision: "rgb(var(--tm-decision) / <alpha-value>)",
+          tool: "rgb(var(--tm-tool) / <alpha-value>)",
+          write: "rgb(var(--tm-write) / <alpha-value>)",
+          complete: "rgb(var(--tm-complete) / <alpha-value>)",
+          blocker: "rgb(var(--tm-blocker) / <alpha-value>)",
+        },
+      },
+      fontFamily: {
+        // "Usual browser fonts" — system stacks only, no bundled typefaces.
+        sans: [
+          "system-ui",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          '"Segoe UI"',
+          "Roboto",
+          "Helvetica",
+          "Arial",
+          "sans-serif",
+        ],
+        display: [
+          "system-ui",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          '"Segoe UI"',
+          "Roboto",
+          "sans-serif",
+        ],
+        mono: [
+          "ui-monospace",
+          "SFMono-Regular",
+          '"SF Mono"',
+          "Menlo",
+          "Consolas",
+          "monospace",
+        ],
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -58,10 +125,10 @@ module.exports = {
         4.5: "1.125rem",
       },
       boxShadow: {
-        subtle: "0 0 6px rgba(0,0,0,0.06)",
-        tab: "0 0 5px rgba(0,0,0,0.08)",
-        expanded: "0 8px 16px rgba(0,0,0,0.15)",
-        chat: "0 10px 40px rgba(0,0,0,0.04)",
+        // Restrained, single-layer depth for chrome over the blue field.
+        panel: "0 12px 32px -16px rgba(0,0,0,0.55)",
+        lift: "0 4px 16px -8px rgba(0,0,0,0.5)",
+        sheet: "0 -16px 48px -24px rgba(0,0,0,0.6)",
       },
       animation: {
         "spring-scale": "spring-scale 0.2s ease-in-out forwards",
