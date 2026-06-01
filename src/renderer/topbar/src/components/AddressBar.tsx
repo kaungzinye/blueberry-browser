@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { ArrowLeft, ArrowRight, RefreshCw, Loader2, PanelLeftClose, PanelLeft } from 'lucide-react'
+import { ArrowLeft, ArrowRight, RefreshCw, Loader2, Sprout } from 'lucide-react'
 import { useBrowser } from '../contexts/BrowserContext'
 import { ToolBarButton } from '../components/ToolBarButton'
 import { Favicon } from '../components/Favicon'
@@ -11,7 +11,6 @@ export const AddressBar: React.FC = () => {
     const [url, setUrl] = useState('')
     const [isEditing, setIsEditing] = useState(false)
     const [isFocused, setIsFocused] = useState(false)
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
     // Update URL when active tab changes
     useEffect(() => {
@@ -102,12 +101,8 @@ export const AddressBar: React.FC = () => {
         }
     }
 
-    const toggleSidebar = () => {
-        setIsSidebarOpen(!isSidebarOpen)
-        // Send IPC event to toggle sidebar
-        if (window.topBarAPI) {
-            window.topBarAPI.toggleSidebar()
-        }
+    const showGarden = () => {
+        window.topBarAPI?.showGarden()
     }
 
     return (
@@ -198,9 +193,9 @@ export const AddressBar: React.FC = () => {
             <div className="flex items-center gap-1 app-region-no-drag">
                 <DarkModeToggle />
                 <ToolBarButton
-                    Icon={isSidebarOpen ? PanelLeftClose : PanelLeft}
-                    onClick={toggleSidebar}
-                    toggled={isSidebarOpen}
+                    Icon={Sprout}
+                    onClick={showGarden}
+                    active
                 />
             </div>
         </>

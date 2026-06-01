@@ -54,6 +54,14 @@ export class TopBar {
     this.setupBounds();
   }
 
+  hide(): void {
+    this.webContentsView.setVisible(false);
+  }
+
+  show(): void {
+    this.webContentsView.setVisible(true);
+  }
+
   get view(): WebContentsView {
     return this.webContentsView;
   }

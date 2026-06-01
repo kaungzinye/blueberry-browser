@@ -10,6 +10,8 @@
     "src/renderer/sidebar/**/*.tsx",
     "src/renderer/topbar/**/*",
     "src/renderer/topbar/**/*.tsx",
+    "src/renderer/garden/**/*",
+    "src/renderer/garden/**/*.tsx",
     "src/preload/*.d.ts"
   ],
   "compilerOptions": {

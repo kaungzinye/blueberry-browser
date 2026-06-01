@@ -31,6 +31,9 @@ const topBarAPI = {
   // Sidebar
   toggleSidebar: () =>
     electronAPI.ipcRenderer.invoke("toggle-sidebar"),
+
+  // Garden
+  showGarden: () => electronAPI.ipcRenderer.invoke("garden-show"),
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to
