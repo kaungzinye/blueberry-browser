@@ -72,6 +72,8 @@ export interface Berry {
   filePath?: string;
   browserTabId?: string;
   screenshotDataUrl?: string;
+  /** True when this Tab Berry is the foreground browser tab. */
+  isActive?: boolean;
 }
 
 export interface TabBerrySnapshot {
@@ -79,6 +81,7 @@ export interface TabBerrySnapshot {
   title: string;
   url: string;
   screenshotDataUrl?: string;
+  isActive?: boolean;
 }
 
 export type LedgerEntry = Berry & {
@@ -573,6 +576,7 @@ export const syncTabBerries = (
       height: existing?.height ?? 170,
       status: existing?.status ?? ("idle" as const),
       onMap: existing?.onMap ?? true,
+      isActive: snapshot.isActive ?? false,
     };
   });
 

@@ -6,6 +6,8 @@ export class Tab {
   private _title: string;
   private _url: string;
   private _isVisible: boolean = false;
+  /** Last non-empty screenshot, captured while the tab was visible. */
+  private _cachedScreenshot: string | null = null;
 
   constructor(id: string, url: string = "https://www.google.com") {
     this._id = id;
@@ -43,6 +45,33 @@ export class Tab {
     this.webContentsView.webContents.on("did-navigate-in-page", (_, url) => {
       this._url = url;
     });
+
+    // Cache a thumbnail when the page settles — but only while the tab is
+    // visible, since capturePage() returns an empty image for hidden views.
+    this.webContentsView.webContents.on("did-stop-loading", () => {
+      if (this._isVisible) {
+        setTimeout(() => void this.captureScreenshot(), 350);
+      }
+    });
+  }
+
+  /**
+   * Capture the current frame and cache it as a data URL — but only keep it
+   * if non-empty (a hidden/unpainted view yields an empty image we discard).
+   */
+  async captureScreenshot(): Promise<void> {
+    try {
+      const image = await this.webContentsView.webContents.capturePage();
+      if (!image.isEmpty()) {
+        this._cachedScreenshot = image.toDataURL();
+      }
+    } catch {
+      // Keep the previous cache on failure.
+    }
+  }
+
+  get cachedScreenshot(): string | null {
+    return this._cachedScreenshot;
   }
 
   // Getters
@@ -74,6 +103,8 @@ export class Tab {
   show(): void {
     this._isVisible = true;
     this.webContentsView.setVisible(true);
+    // Refresh the thumbnail shortly after the view paints.
+    setTimeout(() => void this.captureScreenshot(), 400);
   }
 
   hide(): void {

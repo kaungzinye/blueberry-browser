@@ -127,6 +127,57 @@ describe("Intel Ledger and work run completion", () => {
     expect(tabBerries[1].subtitle).toBe("google.com");
   });
 
+  it("marks the active browser tab's Berry as active", () => {
+    const synced = syncTabBerries(createInitialGardenState(), [
+      {
+        browserTabId: "tab-1",
+        title: "Strawberry Browser",
+        url: "https://strawberrybrowser.com/",
+        isActive: true,
+      },
+    ]);
+
+    const tabBerry = getVisibleBerries(synced).find(
+      (berry) => berry.browserTabId === "tab-1"
+    );
+    expect(tabBerry?.isActive).toBe(true);
+  });
+
+  it("defaults a tab Berry to inactive when the snapshot omits isActive", () => {
+    const synced = syncTabBerries(createInitialGardenState(), [
+      { browserTabId: "tab-1", title: "Google", url: "https://www.google.com/" },
+    ]);
+
+    const tabBerry = getVisibleBerries(synced).find(
+      (berry) => berry.browserTabId === "tab-1"
+    );
+    expect(tabBerry?.isActive).toBe(false);
+  });
+
+  it("moves the active marker to the newly-focused tab on re-sync, keeping positions", () => {
+    const first = syncTabBerries(createInitialGardenState(), [
+      { browserTabId: "tab-1", title: "Strawberry", url: "https://strawberrybrowser.com/", isActive: true },
+      { browserTabId: "tab-2", title: "Google", url: "https://www.google.com/", isActive: false },
+    ]);
+
+    const tab1Before = first.berries.find((b) => b.browserTabId === "tab-1");
+
+    // User switches to tab-2; a fresh snapshot arrives with the flag flipped.
+    const second = syncTabBerries(first, [
+      { browserTabId: "tab-1", title: "Strawberry", url: "https://strawberrybrowser.com/", isActive: false },
+      { browserTabId: "tab-2", title: "Google", url: "https://www.google.com/", isActive: true },
+    ]);
+
+    const tab1After = second.berries.find((b) => b.browserTabId === "tab-1");
+    const tab2After = second.berries.find((b) => b.browserTabId === "tab-2");
+
+    expect(tab1After?.isActive).toBe(false);
+    expect(tab2After?.isActive).toBe(true);
+    // Position is preserved across re-sync (not reset to layout defaults).
+    expect(tab1After?.x).toBe(tab1Before?.x);
+    expect(tab1After?.y).toBe(tab1Before?.y);
+  });
+
   it("does not overwrite demo Work Run Berries while a run is active", () => {
     const running = approveWorkRun(
       submitCommand(createInitialGardenState(), demoCommand).state,

@@ -206,7 +206,11 @@ export class AgentRunner {
 
         try {
           const img = await tab.screenshot();
-          self.emit({ type: "berry-screenshot", berryId, screenshotDataUrl: img.toDataURL() });
+          // Skip empty captures (hidden/unpainted views) — they render as a
+          // broken thumbnail in the garden.
+          if (!img.isEmpty()) {
+            self.emit({ type: "berry-screenshot", berryId, screenshotDataUrl: img.toDataURL() });
+          }
         } catch { /* non-fatal */ }
 
         self.emit({ type: "berry-status", berryId, status: "complete" });

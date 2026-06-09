@@ -42,6 +42,7 @@ import {
   getVisibleBerries,
   showBerryOnGarden,
   submitCommand,
+  syncTabBerries,
   TelemetryEvent,
 } from "./domain/gardenDomain";
 import { applyPatch } from "./domain/gardenPatches";
@@ -194,6 +195,24 @@ export const GardenApp: React.FC = () => {
     const unsub = window.gardenAPI?.onAgentPatch((patch) => {
       setState((current) => applyPatch(current, patch));
     });
+    return () => unsub?.();
+  }, []);
+
+  // Pull real browser tabs into the garden as Tab Berries. getTabBerries is
+  // expensive (screenshots every tab), so sync on mount and whenever the
+  // garden becomes visible — not on a poll. syncTabBerries preserves berry
+  // positions and skips while a Work Run is active.
+  useEffect(() => {
+    const pullTabs = (): void => {
+      window.gardenAPI
+        ?.getTabBerries()
+        .then((snapshots) =>
+          setState((current) => syncTabBerries(current, snapshots))
+        )
+        .catch(() => {});
+    };
+    pullTabs();
+    const unsub = window.gardenAPI?.onGardenShown(pullTabs);
     return () => unsub?.();
   }, []);
 
@@ -386,7 +405,12 @@ export const GardenApp: React.FC = () => {
   };
 
   const handleOpenBerry = (berry: Berry): void => {
-    if (berry.kind === "tab" || berry.browserTabId) return;
+    // Tab Berry: enter the live browser tab (switches active tab + hides garden).
+    if (berry.browserTabId) {
+      void window.gardenAPI?.focusTab(berry.browserTabId);
+      return;
+    }
+    if (berry.kind === "tab") return;
 
     if (berry.kind === "report") {
       setReaderBerryId(berry.id);
@@ -399,8 +423,9 @@ export const GardenApp: React.FC = () => {
 
   const handleSelectBerry = (berryId: string): void => {
     const berry = state.berries.find((candidate) => candidate.id === berryId);
-    if (!berry || berry.kind === "tab" || berry.browserTabId) return;
+    if (!berry) return;
 
+    // Tab Berries are selectable (highlight); double-click enters them.
     setSelectedBerryId(berryId);
     if (berry.kind === "report") {
       setReaderBerryId(berryId);
@@ -728,34 +753,76 @@ interface BerryCardProps {
 const isTabBerry = (berry: Berry): boolean =>
   berry.kind === "tab" || Boolean(berry.browserTabId);
 
-const BerryCard: React.FC<BerryCardProps> = ({
-  berry,
-  selected,
-  onSelect,
-  onOpen,
-}) => {
+const faviconFor = (url?: string): string | null => {
+  if (!url) return null;
+  try {
+    return `https://www.google.com/s2/favicons?domain=${new URL(url).hostname}&sz=64`;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Tab Berry — a screenshot-forward browser preview: a slim chrome bar
+ * (favicon + title + active dot) over a thumbnail that fills the card. Reads
+ * like a browser tab; recognition is visual, not metadata. Distinct from the
+ * text-rich Artifact Berry card.
+ */
+/** A real screenshot data URL is long; an empty capture is ~22 chars. */
+const hasValidShot = (src?: string): boolean =>
+  Boolean(src && src.startsWith("data:image") && src.length > 100);
+
+const TabBerryPreview: React.FC<{ berry: Berry }> = ({ berry }) => {
+  const favicon = faviconFor(berry.url);
+  const hostname = berry.subtitle || "";
+  const showShot = hasValidShot(berry.screenshotDataUrl);
+  return (
+    <div className="flex h-full w-full flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line/10 bg-surface-0/70 px-2.5 py-1.5">
+        {favicon ? (
+          <img
+            src={favicon}
+            alt=""
+            className="size-3.5 shrink-0 rounded-sm"
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
+          />
+        ) : (
+          <Globe2 className="size-3.5 shrink-0 text-ink-faint" />
+        )}
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-ink">
+          {berry.title || hostname}
+        </span>
+        {berry.isActive && (
+          <span
+            className="size-1.5 shrink-0 rounded-full bg-accent"
+            title="Active tab"
+          />
+        )}
+      </div>
+      <div className="relative flex min-h-0 flex-1 items-center justify-center bg-surface-0/40">
+        {showShot ? (
+          <img
+            src={berry.screenshotDataUrl}
+            alt=""
+            className="h-full w-full object-cover object-top"
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-1.5 px-2 text-center text-ink-faint">
+            <Globe2 className="size-5 opacity-50" />
+            <span className="text-[10px]">{hostname || "Loading preview…"}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ArtifactBerryContent: React.FC<{ berry: Berry }> = ({ berry }) => {
   const Icon = berryIcon[berry.kind];
-  const tabBerry = isTabBerry(berry);
-
-  const className = `absolute rounded-3xl border p-4 text-left shadow-panel backdrop-blur-md ${
-    tabBerry
-      ? "pointer-events-none cursor-default border-line/10 bg-surface-1/55 opacity-90"
-      : `transition-all hover:-translate-y-0.5 ${
-          selected
-            ? "border-accent/60 bg-surface-2/80 ring-1 ring-accent/40"
-            : "border-line/10 bg-surface-1/70 hover:border-accent/30"
-        }`
-  }`;
-
-  const style = {
-    left: berry.x,
-    top: berry.y,
-    width: berry.width,
-    height: berry.height,
-  };
-
-  const content = (
-    <>
+  return (
+    <div className="p-4">
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="rounded-xl bg-accent/12 p-2 text-accent">
@@ -772,7 +839,7 @@ const BerryCard: React.FC<BerryCardProps> = ({
       <h3 className="line-clamp-2 font-display text-lg font-semibold text-ink">
         {berry.title}
       </h3>
-      <p className="mt-1 text-sm text-ink-muted">{berry.subtitle}</p>
+      <p className="mt-1 line-clamp-1 text-sm text-ink-muted">{berry.subtitle}</p>
       {berry.screenshotDataUrl ? (
         <img
           src={berry.screenshotDataUrl}
@@ -782,16 +849,34 @@ const BerryCard: React.FC<BerryCardProps> = ({
       ) : (
         <div className="mt-4 h-14 rounded-2xl border border-line/10 bg-surface-0/50" />
       )}
-    </>
+    </div>
   );
+};
 
-  if (tabBerry) {
-    return (
-      <div className={className} style={style}>
-        {content}
-      </div>
-    );
-  }
+const BerryCard: React.FC<BerryCardProps> = ({
+  berry,
+  selected,
+  onSelect,
+  onOpen,
+}) => {
+  const tabBerry = isTabBerry(berry);
+
+  const ringClass = selected
+    ? "border-accent/60 ring-1 ring-accent/40"
+    : berry.isActive
+      ? "border-accent/40 ring-1 ring-accent/30"
+      : "border-line/10 hover:border-accent/30";
+
+  const className = `absolute overflow-hidden rounded-2xl border text-left shadow-panel backdrop-blur-md transition-all hover:-translate-y-0.5 ${
+    tabBerry ? "bg-surface-1/80" : "bg-surface-1/70"
+  } ${ringClass}`;
+
+  const style = {
+    left: berry.x,
+    top: berry.y,
+    width: berry.width,
+    height: berry.height,
+  };
 
   return (
     <button
@@ -801,8 +886,13 @@ const BerryCard: React.FC<BerryCardProps> = ({
       style={style}
       onClick={onSelect}
       onDoubleClick={onOpen}
+      title={tabBerry ? "Double-click to enter this tab" : undefined}
     >
-      {content}
+      {tabBerry ? (
+        <TabBerryPreview berry={berry} />
+      ) : (
+        <ArtifactBerryContent berry={berry} />
+      )}
     </button>
   );
 };
