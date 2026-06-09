@@ -23,10 +23,10 @@ export const ToolBarButton: React.FC<ToolBarButtonProps> = ({
         <div
             className={cn(
                 "size-8 flex items-center justify-center rounded-md",
-                "text-secondary-foreground app-region-no-drag",
+                "text-[#94a3c2] app-region-no-drag",
                 "transition-all duration-200",
-                !active ? "opacity-50" : "hover:bg-muted active:brightness-95 cursor-pointer",
-                toggled && "bg-muted",
+                !active ? "opacity-40" : "hover:bg-white/[0.06] hover:text-[#e7ecf6] active:brightness-95 cursor-pointer",
+                toggled && "bg-white/[0.06] text-[#e7ecf6]",
                 className
             )}
             onClick={active ? onClick : undefined}

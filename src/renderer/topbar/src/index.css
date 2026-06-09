@@ -58,13 +58,22 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    /* Near-black, slightly blue — darker than the Garden canvas
+       (--garden-base #0e1a33) so the chrome frames the canvas rather than
+       blending into it. */
+    background: rgb(8 13 26);
+  }
+
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
       'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
       sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    @apply bg-background text-foreground;
+    color: rgb(231 236 246);
     height: 100vh;
     overflow: hidden;
   }

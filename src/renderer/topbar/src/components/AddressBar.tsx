@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { ArrowLeft, ArrowRight, RefreshCw, Loader2, Sprout } from 'lucide-react'
+import { ArrowLeft, ArrowRight, RefreshCw, Loader2 } from 'lucide-react'
 import { useBrowser } from '../contexts/BrowserContext'
 import { ToolBarButton } from '../components/ToolBarButton'
 import { Favicon } from '../components/Favicon'
@@ -101,10 +101,6 @@ export const AddressBar: React.FC = () => {
         }
     }
 
-    const showGarden = () => {
-        window.topBarAPI?.showGarden()
-    }
-
     return (
         <>
             {/* Navigation Controls */}
@@ -135,7 +131,7 @@ export const AddressBar: React.FC = () => {
             {isFocused ? (
                 // Expanded State
                 <form onSubmit={handleSubmit} className="flex-1 min-w-0 max-w-full">
-                    <div className="bg-background rounded-lg shadow-md p-1 dark:bg-secondary">
+                    <div className="rounded-lg p-1 bg-[#1f2c4d] ring-1 ring-[#5b8cff]/40">
                         <input
                             type="text"
                             value={url}
@@ -143,7 +139,7 @@ export const AddressBar: React.FC = () => {
                             onFocus={handleFocus}
                             onBlur={handleBlur}
                             onKeyDown={handleKeyDown}
-                            className="w-full px-1 py-0.5 text-xs outline-none bg-transparent text-foreground truncate"
+                            className="w-full px-1 py-0.5 text-xs outline-none bg-transparent text-[#e7ecf6] truncate placeholder:text-[#64718f]"
                             placeholder={activeTab ? "Enter URL or search term" : "No active tab"}
                             disabled={!activeTab}
                             spellCheck={false}
@@ -157,9 +153,8 @@ export const AddressBar: React.FC = () => {
                     onClick={handleFocus}
                     className={cn(
                         "flex-1 px-3 h-8 rounded-md cursor-text group/address-bar",
-                        "hover:bg-muted text-muted-foreground app-region-no-drag",
-                        "transition-colors duration-200",
-                        "dark:hover:bg-muted/50"
+                        "hover:bg-white/[0.06] text-[#94a3c2] app-region-no-drag",
+                        "transition-colors duration-200"
                     )}
                 >
                     <div className="flex h-full items-center">
@@ -172,16 +167,16 @@ export const AddressBar: React.FC = () => {
                         <div className="text-[0.8rem] leading-normal truncate flex-1">
                             {activeTab ? (
                                 <>
-                                    <span className="text-foreground dark:text-foreground">{getDomain()}</span>
-                                    <span className="group-hover/address-bar:hidden text-muted-foreground/60">
+                                    <span className="text-[#e7ecf6]">{getDomain()}</span>
+                                    <span className="group-hover/address-bar:hidden text-[#64718f]">
                                         {activeTab.title && ` / ${activeTab.title}`}
                                     </span>
-                                    <span className="group-hover/address-bar:inline hidden text-muted-foreground/60">
+                                    <span className="group-hover/address-bar:inline hidden text-[#64718f]">
                                         {getPath()}
                                     </span>
                                 </>
                             ) : (
-                                <span className="text-muted-foreground">No active tab</span>
+                                <span className="text-[#64718f]">No active tab</span>
                             )}
                         </div>
 
@@ -192,11 +187,6 @@ export const AddressBar: React.FC = () => {
             {/* Actions Menu */}
             <div className="flex items-center gap-1 app-region-no-drag">
                 <DarkModeToggle />
-                <ToolBarButton
-                    Icon={Sprout}
-                    onClick={showGarden}
-                    active
-                />
             </div>
         </>
     )
