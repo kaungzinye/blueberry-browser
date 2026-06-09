@@ -10,6 +10,10 @@ export class Window {
   private _baseWindow: BaseWindow;
   private tabsMap: Map<string, Tab> = new Map();
   private activeTabId: string | null = null;
+  /** What currently occupies the content slot: the Garden canvas or a tab. */
+  private activeView: "garden" | string = "garden";
+  /** When true the left tab rail is collapsed (width 0) and hidden. */
+  private railCollapsed: boolean = false;
   private tabCounter: number = 0;
   private _topBar: TopBar;
   private _sideBar: SideBar;
@@ -46,11 +50,7 @@ export class Window {
 
     // Set up window resize handler
     this._baseWindow.on("resize", () => {
-      this.updateTabBounds();
-      this._topBar.updateBounds();
-      this._tabSidebar.updateBounds();
-      this._garden.updateBounds();
-      this._sideBar.updateBounds();
+      this.updateAllBounds();
       // Notify renderer of resize through active tab
       const bounds = this._baseWindow.getBounds();
       if (this.activeTab) {
@@ -111,10 +111,11 @@ export class Window {
     // Fill the area right of the tab rail, below the top bar, above the command bar.
     const bounds = this._baseWindow.getBounds();
     const cmdBarH = this._sideBar?.getIsVisible() ? this._sideBar.getCurrentHeight() : 0;
+    const railW = this.railWidth;
     tab.view.setBounds({
-      x: LEFT_RAIL_WIDTH,
+      x: railW,
       y: TOPBAR_HEIGHT,
-      width: Math.max(0, bounds.width - LEFT_RAIL_WIDTH),
+      width: Math.max(0, bounds.width - railW),
       height: Math.max(0, bounds.height - TOPBAR_HEIGHT - cmdBarH),
     });
 
@@ -134,33 +135,32 @@ export class Window {
 
   openTabFromGarden(url: string): Tab {
     const tab = this.createTab(url);
+    // switchActiveTab puts the tab in the content slot (Garden leaves it).
     this.switchActiveTab(tab.id);
-    // Reveal the browser chrome (top bar + left tab rail) along with the tab.
-    this.hideGarden();
     return tab;
   }
 
+  /**
+   * Put the Garden canvas in the content slot. Chrome (tab rail, URL bar)
+   * stays visible — this only swaps the slot occupant, it is not a fullscreen
+   * mode. Tabs in the slot are hidden.
+   */
   showGarden(): void {
+    this.activeView = "garden";
     this.tabsMap.forEach((tab) => tab.hide());
-    this._topBar.hide();
-    this._tabSidebar.hide();
-    this._sideBar.hide();
     this._garden.show();
     this._garden.updateBounds();
+    // Tell the garden it just became visible so it can pull fresh tab berries.
+    this._garden.view.webContents.send("garden-shown");
   }
 
+  /**
+   * Leave the Garden by putting a live tab in the content slot. With the
+   * persistent-chrome model this is just "switch the slot to a tab".
+   */
   hideGarden(): void {
-    this._garden.hide();
-    this._topBar.show();
-    this._topBar.updateBounds();
-    this._tabSidebar.show();
-    this._tabSidebar.updateBounds();
-    this._sideBar.show();
-    this._sideBar.updateBounds();
-    if (this.activeTab) {
-      this.activeTab.show();
-      this.updateTabBounds();
-    }
+    const target = this.activeTabId ?? Array.from(this.tabsMap.keys())[0];
+    if (target) this.switchActiveTab(target);
   }
 
   closeTab(tabId: string): boolean {
@@ -169,27 +169,29 @@ export class Window {
       return false;
     }
 
-    // Remove the WebContentsView from the window
+    // Did the closed tab occupy the content slot?
+    const wasSlotOccupant = this.activeView === tabId;
+
+    // Remove the WebContentsView from the window and destroy the tab.
     this._baseWindow.contentView.removeChildView(tab.view);
-
-    // Destroy the tab
     tab.destroy();
-
-    // Remove from our tabs map
     this.tabsMap.delete(tabId);
 
-    // If this was the active tab, switch to another tab
+    const remaining = Array.from(this.tabsMap.keys());
+
     if (this.activeTabId === tabId) {
-      this.activeTabId = null;
-      const remainingTabs = Array.from(this.tabsMap.keys());
-      if (remainingTabs.length > 0) {
-        this.switchActiveTab(remainingTabs[0]);
-      }
+      this.activeTabId = remaining[remaining.length - 1] ?? null;
     }
 
-    // If no tabs left, close the window
-    if (this.tabsMap.size === 0) {
-      this._baseWindow.close();
+    // If the closed tab was in the content slot, choose a new occupant:
+    // an adjacent tab if any remain, otherwise fall back to the Garden home.
+    // Closing tabs never closes the app — the Garden is always home.
+    if (wasSlotOccupant) {
+      if (remaining.length > 0) {
+        this.switchActiveTab(remaining[remaining.length - 1]);
+      } else {
+        this.showGarden();
+      }
     }
 
     return true;
@@ -201,17 +203,18 @@ export class Window {
       return false;
     }
 
-    // Hide the currently active tab
-    if (this.activeTabId && this.activeTabId !== tabId) {
-      const currentTab = this.tabsMap.get(this.activeTabId);
-      if (currentTab) {
-        currentTab.hide();
-      }
-    }
+    // A tab now occupies the content slot — the Garden leaves it.
+    this.activeView = tabId;
+    this._garden.hide();
 
-    // Show the new active tab
+    // Only the target tab is visible in the slot.
+    this.tabsMap.forEach((other) => {
+      if (other.id !== tabId) other.hide();
+    });
+
     tab.show();
     this.activeTabId = tabId;
+    this.updateTabBounds();
 
     // Update the window title to match the tab title
     this._baseWindow.setTitle(tab.title || "Blueberry Browser");
@@ -273,15 +276,33 @@ export class Window {
     return this._baseWindow.getBounds();
   }
 
+  /** Current left-rail width — 0 when collapsed, LEFT_RAIL_WIDTH otherwise. */
+  get railWidth(): number {
+    return this.railCollapsed ? 0 : LEFT_RAIL_WIDTH;
+  }
+
+  /** Collapse or expand the left tab rail; re-lays-out all views. Returns the new collapsed state. */
+  toggleRail(): boolean {
+    this.railCollapsed = !this.railCollapsed;
+    if (this.railCollapsed) {
+      this._tabSidebar.hide();
+    } else {
+      this._tabSidebar.show();
+    }
+    this.updateAllBounds();
+    return this.railCollapsed;
+  }
+
   private updateTabBounds(): void {
     const bounds = this._baseWindow.getBounds();
     const cmdBarH = this._sideBar.getIsVisible() ? this._sideBar.getCurrentHeight() : 0;
+    const railW = this.railWidth;
 
     this.tabsMap.forEach((tab) => {
       tab.view.setBounds({
-        x: LEFT_RAIL_WIDTH,
+        x: railW,
         y: TOPBAR_HEIGHT,
-        width: Math.max(0, bounds.width - LEFT_RAIL_WIDTH),
+        width: Math.max(0, bounds.width - railW),
         height: Math.max(0, bounds.height - TOPBAR_HEIGHT - cmdBarH),
       });
     });
@@ -293,12 +314,14 @@ export class Window {
     this.updateTabBounds();
   }
 
-  // Public method to update all bounds when sidebar is toggled
+  // Public method to update all bounds when sidebar/rail changes
   updateAllBounds(): void {
+    const railW = this.railWidth;
     this.updateTabBounds();
-    this._topBar.updateBounds();
+    this._topBar.updateBounds(railW);
     this._tabSidebar.updateBounds();
     this._sideBar.updateBounds();
+    this._garden.updateBounds(railW);
   }
 
   // Getter for sidebar to access from main process
@@ -313,6 +336,16 @@ export class Window {
 
   get garden(): GardenView {
     return this._garden;
+  }
+
+  /** What occupies the content slot: "garden" or a tabId. */
+  get currentView(): "garden" | string {
+    return this.activeView;
+  }
+
+  /** True when the Garden canvas (not a live tab) is in the content slot. */
+  get isGardenActive(): boolean {
+    return this.activeView === "garden";
   }
 
   // Getter for all tabs as array

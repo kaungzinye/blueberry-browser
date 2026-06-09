@@ -51,14 +51,15 @@ export class EventManager {
       this.mainWindow.switchActiveTab(id);
     });
 
-    // Get tabs
+    // Get tabs. isActive reflects the content-slot occupant: when the Garden
+    // is active, no tab is active (the rail's Garden entry highlights instead).
     ipcMain.handle("get-tabs", () => {
-      const activeTabId = this.mainWindow.activeTab?.id;
+      const currentView = this.mainWindow.currentView;
       return this.mainWindow.allTabs.map((tab) => ({
         id: tab.id,
         title: tab.title,
         url: tab.url,
-        isActive: activeTabId === tab.id,
+        isActive: currentView === tab.id,
       }));
     });
 
@@ -165,6 +166,11 @@ export class EventManager {
       return true;
     });
 
+    // Collapse / expand the left tab rail. Returns the new collapsed state.
+    ipcMain.handle("toggle-rail", () => {
+      return this.mainWindow.toggleRail();
+    });
+
     // Chat message
     ipcMain.handle("sidebar-chat-message", async (_, request) => {
       // The LLMClient now handles getting the screenshot and context directly
@@ -252,33 +258,23 @@ export class EventManager {
     });
 
     ipcMain.handle("garden-focus-tab", (_, tabId: string) => {
-      const switched = this.mainWindow.switchActiveTab(tabId);
-      if (switched) {
-        this.mainWindow.hideGarden();
-      }
-      return switched;
+      // switchActiveTab puts the tab in the content slot (Garden leaves it);
+      // chrome stays visible, so no separate hideGarden step is needed.
+      return this.mainWindow.switchActiveTab(tabId);
     });
 
-    ipcMain.handle("garden-get-tab-berries", async () => {
-      const tabs = this.mainWindow.allTabs;
-      return Promise.all(
-        tabs.map(async (tab) => {
-          let screenshotDataUrl: string | undefined;
-          try {
-            const image = await tab.screenshot();
-            screenshotDataUrl = image.toDataURL();
-          } catch (error) {
-            console.error("Failed to capture tab preview for Garden:", error);
-          }
-
-          return {
-            browserTabId: tab.id,
-            title: tab.title,
-            url: tab.url,
-            screenshotDataUrl,
-          };
-        })
-      );
+    ipcMain.handle("garden-get-tab-berries", () => {
+      // Serve the cached thumbnail captured while the tab was last visible —
+      // tabs are hidden when the Garden is showing, so a live capturePage()
+      // here would return an empty image (the broken-thumbnail bug).
+      const currentView = this.mainWindow.currentView;
+      return this.mainWindow.allTabs.map((tab) => ({
+        browserTabId: tab.id,
+        title: tab.title,
+        url: tab.url,
+        screenshotDataUrl: tab.cachedScreenshot ?? undefined,
+        isActive: currentView === tab.id,
+      }));
     });
 
     ipcMain.handle("garden-show", () => {

@@ -28,6 +28,7 @@ interface TopBarAPI {
 
   // Sidebar
   toggleSidebar: () => Promise<void>;
+  toggleRail: () => Promise<boolean>;
 
   // Garden
   showGarden: () => Promise<boolean>;

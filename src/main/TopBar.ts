@@ -43,19 +43,20 @@ export class TopBar {
     return webContentsView;
   }
 
-  private setupBounds(): void {
+  private setupBounds(railWidth: number = LEFT_RAIL_WIDTH): void {
     const bounds = this.baseWindow.getBounds();
-    // Slim URL/toolbar, to the right of the left tab rail.
+    // Slim URL/toolbar, to the right of the left tab rail (which may be
+    // collapsed to width 0, in which case the bar spans the full width).
     this.webContentsView.setBounds({
-      x: LEFT_RAIL_WIDTH,
+      x: railWidth,
       y: 0,
-      width: Math.max(0, bounds.width - LEFT_RAIL_WIDTH),
+      width: Math.max(0, bounds.width - railWidth),
       height: TOPBAR_HEIGHT,
     });
   }
 
-  updateBounds(): void {
-    this.setupBounds();
+  updateBounds(railWidth: number = LEFT_RAIL_WIDTH): void {
+    this.setupBounds(railWidth);
   }
 
   hide(): void {

@@ -32,6 +32,10 @@ const topBarAPI = {
   toggleSidebar: () =>
     electronAPI.ipcRenderer.invoke("toggle-sidebar"),
 
+  // Collapse / expand the left tab rail. Resolves to the new collapsed state.
+  toggleRail: (): Promise<boolean> =>
+    electronAPI.ipcRenderer.invoke("toggle-rail"),
+
   // Garden
   showGarden: () => electronAPI.ipcRenderer.invoke("garden-show"),
 };

@@ -41,6 +41,17 @@ const gardenAPI = {
     electronAPI.ipcRenderer.on(AGENT_PATCH_CHANNEL, listener);
     return () => electronAPI.ipcRenderer.removeListener(AGENT_PATCH_CHANNEL, listener);
   },
+
+  /**
+   * Fires when the garden view becomes visible. Use it to pull fresh tab
+   * berries (getTabBerries is expensive, so we sync on-show rather than poll).
+   * Returns an unsubscribe function.
+   */
+  onGardenShown: (cb: () => void): (() => void) => {
+    const listener = (): void => cb();
+    electronAPI.ipcRenderer.on("garden-shown", listener);
+    return () => electronAPI.ipcRenderer.removeListener("garden-shown", listener);
+  },
 };
 
 if (process.contextIsolated) {

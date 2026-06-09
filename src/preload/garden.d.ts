@@ -61,6 +61,7 @@ declare global {
     title: string;
     url: string;
     screenshotDataUrl?: string;
+    isActive?: boolean;
   }
 
   interface RunCommandOpts {
@@ -79,6 +80,7 @@ declare global {
     hasApiKey: () => Promise<boolean>;
     runCommand: (opts: RunCommandOpts) => Promise<{ started: boolean }>;
     onAgentPatch: (cb: (patch: GardenStatePatch) => void) => () => void;
+    onGardenShown: (cb: () => void) => () => void;
   }
 
   interface Window {
