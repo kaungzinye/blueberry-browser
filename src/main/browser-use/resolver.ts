@@ -27,7 +27,10 @@ export const MIN_CONFIDENCE = 0.5;
  * the phrase and returns the best match with a confidence, or an explicit miss when
  * nothing is close enough. See PRD "Resolver".
  */
-export function resolve(phrase: string, digest: DigestElement[]): ResolveResult {
+export function resolve(
+  phrase: string,
+  digest: DigestElement[],
+): ResolveResult {
   const target = normalize(phrase);
 
   let best: ResolveHit | null = null;

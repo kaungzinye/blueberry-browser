@@ -13,8 +13,17 @@ describe("ActionRecorder", () => {
 
   it("renders recorded steps as ordered Playwright calls with selectors and values", () => {
     const recorder = createRecorder();
-    recorder.record({ kind: "type", targetText: "Email", targetRole: "textbox", value: "a@b.com" });
-    recorder.record({ kind: "click", targetText: "Sign in", targetRole: "button" });
+    recorder.record({
+      kind: "type",
+      targetText: "Email",
+      targetRole: "textbox",
+      value: "a@b.com",
+    });
+    recorder.record({
+      kind: "click",
+      targetText: "Sign in",
+      targetRole: "button",
+    });
 
     const script = createRecorder() && recorder.toPlaywright();
 
@@ -25,13 +34,22 @@ describe("ActionRecorder", () => {
     // Recorded order is preserved: the fill (typed first) precedes the click.
     expect(fillIdx).toBeLessThan(clickIdx);
 
-    expect(script).toContain(`getByRole("textbox", { name: "Email" }).fill("a@b.com")`);
-    expect(script).toContain(`getByRole("button", { name: "Sign in" }).click()`);
+    expect(script).toContain(
+      `getByRole("textbox", { name: "Email" }).fill("a@b.com")`,
+    );
+    expect(script).toContain(
+      `getByRole("button", { name: "Sign in" }).click()`,
+    );
   });
 
   it("escapes quotes in typed values so the emitted script stays valid", () => {
     const recorder = createRecorder();
-    recorder.record({ kind: "type", targetText: "Bio", targetRole: "textbox", value: 'say "hi"' });
+    recorder.record({
+      kind: "type",
+      targetText: "Bio",
+      targetRole: "textbox",
+      value: 'say "hi"',
+    });
 
     const script = recorder.toPlaywright();
 

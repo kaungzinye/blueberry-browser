@@ -50,7 +50,7 @@ function center(rect: Rect): Point {
 export function narrate(
   action: NarrationAction,
   rect: Rect,
-  _value?: string
+  _value?: string,
 ): OverlayCmd[] {
   const cmds: OverlayCmd[] = [];
   const point = center(rect);

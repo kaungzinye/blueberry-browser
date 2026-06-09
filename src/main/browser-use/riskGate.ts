@@ -29,7 +29,7 @@ const SUBMIT = /\bsubmit\b/i;
  */
 export function requiresApproval(
   action: GateAction,
-  _context?: GateContext
+  _context?: GateContext,
 ): boolean {
   if (_context?.flaggedConsequential) return true;
 
@@ -40,7 +40,8 @@ export function requiresApproval(
 
   // "Submit" gates only when it's an actual control (button), not a link that merely
   // mentions the word — a footer "how to submit" link is navigation, not a submission.
-  if (SUBMIT.test(action.targetText) && action.targetRole !== "link") return true;
+  if (SUBMIT.test(action.targetText) && action.targetRole !== "link")
+    return true;
 
   return false;
 }

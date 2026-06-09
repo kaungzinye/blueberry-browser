@@ -20,3 +20,13 @@ export type { NarrationAction, OverlayCmd, Point } from "./narrationDirector";
 
 export { createRecorder } from "./actionRecorder";
 export type { Recorder, RecordedStep } from "./actionRecorder";
+
+// ── Electron-coupled bridge (manual-verify per PRD) ──────────────────────────
+
+export { extractDigest } from "./elementDigest";
+export type { RunsJs } from "./elementDigest";
+
+export { executeAction } from "./actionExecutor";
+export type { ExecuteResult } from "./actionExecutor";
+
+export { playOverlay, installOverlay } from "./overlay";
