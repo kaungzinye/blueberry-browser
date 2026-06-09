@@ -32,8 +32,25 @@ Whether a Command is **in progress** (active work) or **completed** (done or idl
 _Avoid_: Online/offline, chat open/closed
 
 **Command Bar**:
-The single bottom input for all user requests. Submissions always go to the currently selected Main Agent, even when a Subagent is focused for inspection.
+The single bottom input for all user requests. Submissions always go to the currently selected Main Agent, even when a Subagent is focused for inspection. **Routing rule**: routes to the *selected* Main Agent — *except* a tab under active agent control locks the bar to **steer** that controller for the duration; commanding an unowned tab with no agent starts a **New Command**. Inspecting/viewing a tab never reroutes (inspection ≠ routing). The Command Bar is Garden-scoped chrome: it persists across both the Garden canvas and a live Tab view, because both are views *of* the current Garden.
 _Avoid_: Chat box, chat sidebar, prompt bar
+
+**Content slot**:
+The single swappable region — right of the tab rail, below the URL bar, above the Command Bar — that hosts **either** the Garden canvas **or** one live Tab. Garden and tabs are occupants of one slot, not separate window modes; the chrome (tab rail, URL bar, Command Bar) persists while the slot's occupant swaps.
+_Avoid_: garden mode, fullscreen garden, garden overlay
+
+**Garden address**:
+Each Garden is addressable as `blueberry://garden/<name>`, shown in the URL bar when the Garden canvas is the active content-slot view. Reached by clicking the Garden's pinned entry at the top of the tab rail — not a toolbar toggle. The URL bar is consistent throughout: web URLs for tabs, the garden address for the canvas. A `blueberry://` prefix is the unambiguous discriminator that routes to a Garden rather than a web search.
+_Avoid_: garden button, Sprout toggle
+
+**Tab Berry view state**:
+How much of a Tab Berry is shown — **selected** (single-tap highlight on the canvas), **inspecting** (double-tap popover peek over the canvas), **expanded** (full live Tab in the content slot). Display only; orthogonal to control state.
+
+**Tab Berry control state**:
+Who is driving a tab's DOM/navigation — **user-controlled**, **agent-controlled**, or **idle**. A tab has at most one **controller** at a time; control is a token, never shared. Agents never share a tab: each Work Run opens its own tabs (`navigate_tab` always creates a fresh tab), so a Tab Berry has at most one **owner** Main Agent (user-opened tabs have none).
+
+**Steer**:
+Typing a command while a tab is under active agent control. The command is delivered to the controlling Main Agent and folded in at its next step boundary (cooperative) — not a hard mid-tool-call interrupt. To seize control instead, use **Take over**.
 
 **Main Agent**:
 The primary agent responsible for a Command. Owns the Command thread, directs Subagents, and is the only agent type in Main Agent cycle. Visually and verbally distinct from Subagents in the UI.
