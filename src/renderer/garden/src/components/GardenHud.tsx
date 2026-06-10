@@ -19,6 +19,7 @@ import {
   type CommandLogEntry,
   type LedgerEntry,
   type SourceBerryChoice,
+  type WorkRunPlan,
 } from "../domain/gardenDomain";
 import type { Agent, Berry } from "../domain/gardenDomain";
 import type {
@@ -57,6 +58,9 @@ interface GardenHudProps {
   onCommandTextChange: (value: string) => void;
   onSubmit: () => void;
   plannedWorkRunTitle?: string;
+  /** The planned run's full plan — inspectable/editable before approval (story 24). */
+  plannedWorkRunPlan?: WorkRunPlan;
+  onEditPlan?: (patch: Partial<WorkRunPlan>) => void;
   onApprovePlan?: () => void;
   showWorkRunControls?: boolean;
   onAdvanceWorkRun?: () => void;
@@ -333,6 +337,8 @@ const MainAgentRosterPanel: React.FC<{
   onDismissRosterHint: () => void;
   berryCount: number;
   plannedWorkRunTitle?: string;
+  plannedWorkRunPlan?: WorkRunPlan;
+  onEditPlan?: (patch: Partial<WorkRunPlan>) => void;
   onApprovePlan?: () => void;
   showWorkRunControls?: boolean;
   onAdvanceWorkRun?: () => void;
@@ -354,6 +360,8 @@ const MainAgentRosterPanel: React.FC<{
   onDismissRosterHint,
   berryCount,
   plannedWorkRunTitle,
+  plannedWorkRunPlan,
+  onEditPlan,
   onApprovePlan,
   showWorkRunControls,
   onAdvanceWorkRun,
@@ -445,15 +453,25 @@ const MainAgentRosterPanel: React.FC<{
       </ScrollArea>
 
       <div className="shrink-0 space-y-2 border-t border-line/10 px-3 py-3">
-        {plannedWorkRunTitle && onApprovePlan && (
-          <div className="space-y-2">
-            <p className="line-clamp-2 text-xs leading-relaxed text-ink-muted">
-              {plannedWorkRunTitle}
-            </p>
-            <Button variant="primary" size="md" className="w-full" onClick={onApprovePlan}>
-              Approve run
-            </Button>
-          </div>
+        {plannedWorkRunTitle && onApprovePlan && plannedWorkRunPlan && onEditPlan ? (
+          <PlanCard
+            title={plannedWorkRunTitle}
+            plan={plannedWorkRunPlan}
+            onEdit={onEditPlan}
+            onApprove={onApprovePlan}
+          />
+        ) : (
+          plannedWorkRunTitle &&
+          onApprovePlan && (
+            <div className="space-y-2">
+              <p className="line-clamp-2 text-xs leading-relaxed text-ink-muted">
+                {plannedWorkRunTitle}
+              </p>
+              <Button variant="primary" size="md" className="w-full" onClick={onApprovePlan}>
+                Approve run
+              </Button>
+            </div>
+          )
         )}
         {showWorkRunControls && (
           <div className="flex flex-col gap-2">
@@ -754,6 +772,104 @@ const ArtifactsShelf: React.FC<{
           )}
         </div>
       )}
+    </div>
+  );
+};
+
+/** Editable newline-separated list section of a plan (story 24). */
+const PlanListSection: React.FC<{
+  label: string;
+  items: string[];
+  onCommit: (items: string[]) => void;
+}> = ({ label, items, onCommit }) => {
+  const [draft, setDraft] = useState(items.join("\n"));
+
+  // Re-sync when the plan changes underneath (e.g. another view edited it).
+  useEffect(() => {
+    setDraft(items.join("\n"));
+  }, [items]);
+
+  return (
+    <div>
+      <p className={`${SECTION_LABEL} mb-1`}>{label}</p>
+      <textarea
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() =>
+          onCommit(
+            draft
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean),
+          )
+        }
+        rows={Math.max(2, items.length)}
+        className="w-full resize-none rounded-lg border border-line/10 bg-surface-2/60 px-2 py-1.5 text-[11px] leading-relaxed text-ink outline-none transition-colors focus:border-accent/50"
+      />
+    </div>
+  );
+};
+
+/**
+ * Progressive plan card (stories 23–26): summary plus inspectable, editable
+ * sections — sources, criteria, output columns, destination, checkpoints.
+ */
+const PlanCard: React.FC<{
+  title: string;
+  plan: WorkRunPlan;
+  onEdit: (patch: Partial<WorkRunPlan>) => void;
+  onApprove: () => void;
+}> = ({ title, plan, onEdit, onApprove }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-2">
+      <p className="line-clamp-2 text-xs leading-relaxed text-ink-muted">{title}</p>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between rounded-lg border border-line/10 bg-white/[0.03] px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-wide text-ink-faint transition-colors hover:text-ink"
+      >
+        Review plan
+        {open ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+      </button>
+      {open && (
+        <div className="hud-drop max-h-64 space-y-2.5 overflow-y-auto rounded-lg border border-line/10 bg-surface-1/60 p-2.5">
+          <p className="text-[11px] leading-relaxed text-ink-muted">{plan.summary}</p>
+          <PlanListSection
+            label="Sources"
+            items={plan.sources}
+            onCommit={(sources) => onEdit({ sources })}
+          />
+          <PlanListSection
+            label="Qualification criteria"
+            items={plan.qualificationCriteria}
+            onCommit={(qualificationCriteria) => onEdit({ qualificationCriteria })}
+          />
+          <PlanListSection
+            label="Output columns"
+            items={plan.outputColumns}
+            onCommit={(outputColumns) => onEdit({ outputColumns })}
+          />
+          <div>
+            <p className={`${SECTION_LABEL} mb-1`}>Destination</p>
+            <p className="text-[11px] text-ink">
+              {plan.destination.primary}{" "}
+              <span className="text-ink-faint">· backup {plan.destination.backup}</span>
+            </p>
+          </div>
+          <div>
+            <p className={`${SECTION_LABEL} mb-1`}>Approval checkpoints</p>
+            <ul className="list-inside list-disc text-[11px] leading-relaxed text-ink-muted">
+              {plan.approvalCheckpoints.map((checkpoint) => (
+                <li key={checkpoint}>{checkpoint}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+      <Button variant="primary" size="md" className="w-full" onClick={onApprove}>
+        Approve run
+      </Button>
     </div>
   );
 };
@@ -1092,6 +1208,8 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     onCommandTextChange,
     onSubmit,
     plannedWorkRunTitle,
+    plannedWorkRunPlan,
+    onEditPlan,
     onApprovePlan,
     showWorkRunControls,
     onAdvanceWorkRun,
@@ -1305,6 +1423,8 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
               onDismissRosterHint={onDismissRosterHint}
               berryCount={berries.length}
               plannedWorkRunTitle={plannedWorkRunTitle}
+              plannedWorkRunPlan={plannedWorkRunPlan}
+              onEditPlan={onEditPlan}
               onApprovePlan={onApprovePlan}
               showWorkRunControls={showWorkRunControls}
               onAdvanceWorkRun={onAdvanceWorkRun}

@@ -3,6 +3,7 @@ import {
   advanceWorkRun,
   blockWorkRun,
   chooseRoute,
+  editWorkRunPlan,
   pauseWorkRun,
   retryWorkRun,
   approveWorkRun,
@@ -124,6 +125,43 @@ describe("Garden command routing", () => {
       workRunId: next.workRuns[0].id,
     });
     expect(next.workRuns[0].status).toBe("planning");
+  });
+});
+
+describe("Plan editing before approval", () => {
+  it("merges edits into a planning run's plan", () => {
+    const { state: planned } = submitCommand(
+      createInitialGardenState(),
+      demoCommand
+    );
+
+    const edited = editWorkRunPlan(planned, planned.workRuns[0].id, {
+      sources: ["Strawberry product page only"],
+      outputColumns: ["Company", "Website"],
+    });
+
+    expect(edited.workRuns[0].plan.sources).toEqual([
+      "Strawberry product page only",
+    ]);
+    expect(edited.workRuns[0].plan.outputColumns).toEqual([
+      "Company",
+      "Website",
+    ]);
+    // Untouched sections survive.
+    expect(edited.workRuns[0].plan.destination.primary).toBe("Google Sheets");
+  });
+
+  it("refuses edits once the run is no longer planning", () => {
+    const running = approveWorkRun(
+      submitCommand(createInitialGardenState(), demoCommand).state,
+      "work-run-1"
+    );
+
+    const edited = editWorkRunPlan(running, "work-run-1", {
+      sources: ["nope"],
+    });
+
+    expect(edited).toBe(running);
   });
 });
 

@@ -16,6 +16,7 @@ import {
   attachQuickResponse,
   blockWorkRun,
   chooseRoute,
+  editWorkRunPlan,
   pauseWorkRun,
   retryWorkRun,
   completeWorkRun,
@@ -25,6 +26,7 @@ import {
   upgradeCommand,
   type GardenState,
   type SourceBerryChoice,
+  type WorkRunPlan,
   type TabBerrySnapshot,
 } from "../../renderer/garden/src/domain/gardenDomain";
 import {
@@ -47,6 +49,7 @@ export type GardenIntent =
       sourceChoice?: SourceBerryChoice;
     }
   | { type: "block-work-run"; workRunId: string; reason: string }
+  | { type: "edit-plan"; workRunId: string; patch: Partial<WorkRunPlan> }
   | { type: "pause-work-run"; workRunId: string }
   | { type: "retry-work-run"; workRunId: string }
   | { type: "mark-command-done"; commandId: string }
@@ -106,6 +109,11 @@ export const reduceIntent = (
     case "complete-work-run":
       return {
         state: completeWorkRun(state, intent.workRunId, intent.sourceChoice),
+      };
+
+    case "edit-plan":
+      return {
+        state: editWorkRunPlan(state, intent.workRunId, intent.patch),
       };
 
     case "block-work-run":

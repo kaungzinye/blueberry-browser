@@ -620,6 +620,17 @@ export const GardenApp: React.FC = () => {
         onCommandTextChange={setCommandText}
         onSubmit={handleSubmit}
         plannedWorkRunTitle={plannedWorkRun?.title}
+        plannedWorkRunPlan={plannedWorkRun?.plan}
+        onEditPlan={
+          plannedWorkRun
+            ? (patch) =>
+                void window.gardenAPI?.dispatch({
+                  type: "edit-plan",
+                  workRunId: plannedWorkRun.id,
+                  patch,
+                })
+            : undefined
+        }
         onApprovePlan={plannedWorkRun ? handleApprovePlan : undefined}
         showWorkRunControls={Boolean(runningWorkRun || completedWorkRun)}
         onAdvanceWorkRun={runningWorkRun ? handleAdvanceWorkRun : undefined}

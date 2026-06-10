@@ -736,6 +736,30 @@ export const retryWorkRun = (
   );
 };
 
+/**
+ * Merge user edits into a plan section (PRD story 24). Only while the run is
+ * still planning — an approved plan is the contract the run executes against.
+ */
+export const editWorkRunPlan = (
+  state: GardenState,
+  workRunId: string,
+  patch: Partial<WorkRunPlan>,
+): GardenState => {
+  const workRun = state.workRuns.find(
+    (candidate) => candidate.id === workRunId,
+  );
+  if (!workRun || workRun.status !== "planning") return state;
+
+  return {
+    ...state,
+    workRuns: state.workRuns.map((candidate) =>
+      candidate.id === workRunId
+        ? { ...candidate, plan: { ...candidate.plan, ...patch } }
+        : candidate,
+    ),
+  };
+};
+
 /** What happens to source Berries when a run completes (PRD stories 60–61). */
 export type SourceBerryChoice = "collapse" | "keep" | "close";
 
