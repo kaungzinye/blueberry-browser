@@ -1,10 +1,12 @@
-export type CommandRoute = "quick" | "work-run";
+export type CommandRoute = "quick" | "work-run" | "ambiguous";
 export type CommandStatus =
   | "complete"
   | "planning"
   | "running"
   | "blocked"
-  | "interrupted";
+  | "interrupted"
+  /** Ambiguous route — waiting for the user to pick quick vs visible Work Run. */
+  | "awaiting-route";
 export type WorkRunStatus =
   | "planning"
   | "running"
@@ -27,6 +29,8 @@ export interface Command {
   status: CommandStatus;
   mainAgentId: string;
   workRunId?: string;
+  /** Compact Main Agent reply for quick-routed commands (PRD stories 11–12). */
+  response?: string;
 }
 
 export interface WorkRunPlan {
@@ -254,26 +258,46 @@ const applyCommandText = (
 
   const route = classifyCommand(text);
 
-  if (route === "quick") {
+  if (route === "quick" || route === "ambiguous") {
+    const ambiguous = route === "ambiguous";
     return {
       ...state,
       agents: state.agents.map((agent) =>
         agent.id === command.mainAgentId
           ? {
               ...agent,
-              state: "complete",
-              currentLabel: "Quick response ready",
+              state: ambiguous ? "idle" : "complete",
+              currentLabel: ambiguous
+                ? "Answer quickly or run visibly?"
+                : "Quick response ready",
             }
           : agent,
       ),
       commands: state.commands.map((candidate) =>
         candidate.id === commandId
-          ? { ...candidate, text, route, status: "complete" }
+          ? {
+              ...candidate,
+              text,
+              route,
+              status: ambiguous ? "awaiting-route" : "complete",
+            }
           : candidate,
       ),
     };
   }
 
+  return promoteCommandToWorkRun(state, command, text);
+};
+
+/**
+ * Put a command on the visible route: status planning, agent planning, and a
+ * planned Work Run (created if the command does not already have one).
+ */
+const promoteCommandToWorkRun = (
+  state: GardenState,
+  command: Command,
+  text: string,
+): GardenState => {
   const workRunId =
     command.workRunId ?? createId("work-run", state.workRuns.length + 1);
 
@@ -289,8 +313,8 @@ const applyCommandText = (
         : agent,
     ),
     commands: state.commands.map((candidate) =>
-      candidate.id === commandId
-        ? { ...candidate, text, route, status: "planning", workRunId }
+      candidate.id === command.id
+        ? { ...candidate, text, route: "work-run", status: "planning", workRunId }
         : candidate,
     ),
     workRuns: command.workRunId
@@ -300,13 +324,97 @@ const applyCommandText = (
           {
             id: workRunId,
             title: "Find Blueberry sales leads",
-            commandId,
+            commandId: command.id,
             mainAgentId: command.mainAgentId,
             status: "planning",
             plan: createLeadGenPlan(),
             step: 0,
           },
         ],
+  };
+};
+
+/**
+ * Attach the Main Agent's compact reply to a quick-routed command and mark it
+ * complete. No-op for work-run commands — their output is the Work Run itself.
+ */
+export const attachQuickResponse = (
+  state: GardenState,
+  commandId: string,
+  text: string,
+): GardenState => {
+  const command = state.commands.find(
+    (candidate) => candidate.id === commandId,
+  );
+  if (!command || command.route === "work-run") return state;
+
+  return {
+    ...state,
+    agents: state.agents.map((agent) =>
+      agent.id === command.mainAgentId
+        ? { ...agent, state: "complete", currentLabel: "Quick response ready" }
+        : agent,
+    ),
+    commands: state.commands.map((candidate) =>
+      candidate.id === commandId
+        ? { ...candidate, response: text, status: "complete" }
+        : candidate,
+    ),
+  };
+};
+
+/**
+ * Upgrade a completed quick command into a visible Work Run (PRD story 15).
+ * No-op unless the command is a completed quick command without a Work Run.
+ */
+export const upgradeCommand = (
+  state: GardenState,
+  commandId: string,
+): GardenState => {
+  const command = state.commands.find(
+    (candidate) => candidate.id === commandId,
+  );
+  if (
+    !command ||
+    command.route !== "quick" ||
+    command.status !== "complete" ||
+    command.workRunId
+  ) {
+    return state;
+  }
+  return promoteCommandToWorkRun(state, command, command.text);
+};
+
+/**
+ * Resolve an ambiguous command (PRD story 14): the user picked a quick answer
+ * or a visible Work Run. No-op unless the command is awaiting a route.
+ */
+export const chooseRoute = (
+  state: GardenState,
+  commandId: string,
+  route: "quick" | "work-run",
+): GardenState => {
+  const command = state.commands.find(
+    (candidate) => candidate.id === commandId,
+  );
+  if (!command || command.status !== "awaiting-route") return state;
+
+  if (route === "work-run") {
+    return promoteCommandToWorkRun(state, command, command.text);
+  }
+
+  return {
+    ...state,
+    agents: state.agents.map((agent) =>
+      agent.id === command.mainAgentId
+        ? { ...agent, state: "complete", currentLabel: "Quick response ready" }
+        : agent,
+    ),
+    commands: state.commands.map((candidate) =>
+      candidate.id === commandId
+        ? { ...candidate, route: "quick", status: "complete" }
+        : candidate,
+    ),
   };
 };
 
@@ -318,19 +426,27 @@ const createCommandWithNewAgent = (
   const agent = createMainAgent(state);
   const commandId = createId("command", state.commands.length + 1);
 
-  if (route === "quick") {
+  if (route === "quick" || route === "ambiguous") {
     return {
       mainAgentId: agent.id,
       state: {
         ...state,
-        agents: [...state.agents, agent],
+        agents: [
+          ...state.agents,
+          route === "ambiguous"
+            ? {
+                ...agent,
+                currentLabel: "Answer quickly or run visibly?",
+              }
+            : agent,
+        ],
         commands: [
           ...state.commands,
           {
             id: commandId,
             text,
             route,
-            status: "complete",
+            status: route === "ambiguous" ? "awaiting-route" : "complete",
             mainAgentId: agent.id,
           },
         ],
@@ -652,9 +768,19 @@ const classifyCommand = (text: string): CommandRoute => {
     "companies",
   ];
 
-  return workSignals.some((signal) => normalized.includes(signal))
-    ? "work-run"
-    : "quick";
+  const hasWorkSignal = workSignals.some((signal) =>
+    normalized.includes(signal),
+  );
+  if (!hasWorkSignal) return "quick";
+
+  // Work-shaped but phrased as a question — the user may want a quick answer
+  // or a visible Work Run; ask instead of guessing (PRD story 14).
+  const interrogative =
+    normalized.endsWith("?") ||
+    /^(what|who|which|where|when|why|how|can|could|should|would|do|does|is|are)\b/.test(
+      normalized,
+    );
+  return interrogative ? "ambiguous" : "work-run";
 };
 
 const createMainAgent = (state: GardenState): Agent => ({

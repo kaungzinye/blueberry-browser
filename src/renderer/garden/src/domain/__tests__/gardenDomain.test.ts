@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceWorkRun,
+  chooseRoute,
   approveWorkRun,
   completeWorkRun,
   createInitialGardenState,
@@ -10,6 +11,7 @@ import {
   showBerryOnGarden,
   submitCommand,
   syncTabBerries,
+  upgradeCommand,
 } from "../gardenDomain";
 
 const demoCommand =
@@ -61,6 +63,62 @@ describe("Garden command routing", () => {
       label: "Understand Strawberry's target customers",
       berryId: "berry-strawberry-home",
     });
+  });
+
+  it("routes a work-shaped question as ambiguous and waits for the user to choose", () => {
+    const { state: next } = submitCommand(
+      createInitialGardenState(),
+      "What companies might buy Blueberry?"
+    );
+
+    expect(next.commands[0]).toMatchObject({
+      route: "ambiguous",
+      status: "awaiting-route",
+    });
+    // No Work Run is created until the user picks quick vs visible.
+    expect(next.workRuns).toHaveLength(0);
+  });
+
+  it("choosing the visible route turns an ambiguous command into a planned Work Run", () => {
+    const { state: pending } = submitCommand(
+      createInitialGardenState(),
+      "What companies might buy Blueberry?"
+    );
+
+    const next = chooseRoute(pending, pending.commands[0].id, "work-run");
+
+    expect(next.commands[0]).toMatchObject({
+      route: "work-run",
+      status: "planning",
+      workRunId: next.workRuns[0].id,
+    });
+    expect(next.workRuns[0].status).toBe("planning");
+  });
+
+  it("choosing the quick route completes an ambiguous command without a Work Run", () => {
+    const { state: pending } = submitCommand(
+      createInitialGardenState(),
+      "What companies might buy Blueberry?"
+    );
+
+    const next = chooseRoute(pending, pending.commands[0].id, "quick");
+
+    expect(next.commands[0]).toMatchObject({ route: "quick", status: "complete" });
+    expect(next.workRuns).toHaveLength(0);
+  });
+
+  it("upgrades a completed quick command into a planned Work Run", () => {
+    const { state: quick } = submitCommand(createInitialGardenState(), "hello there");
+    expect(quick.commands[0].status).toBe("complete");
+
+    const next = upgradeCommand(quick, quick.commands[0].id);
+
+    expect(next.commands[0]).toMatchObject({
+      route: "work-run",
+      status: "planning",
+      workRunId: next.workRuns[0].id,
+    });
+    expect(next.workRuns[0].status).toBe("planning");
   });
 });
 

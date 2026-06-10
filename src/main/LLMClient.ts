@@ -1,5 +1,10 @@
 import { WebContents } from "electron";
-import { streamText, type LanguageModel, type CoreMessage } from "ai";
+import {
+  generateText,
+  streamText,
+  type LanguageModel,
+  type CoreMessage,
+} from "ai";
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
@@ -98,6 +103,28 @@ export class LLMClient {
         `❌ LLM Client initialization failed: ${keyName} not found in environment variables.\n` +
           `Please add your API key to the .env file in the project root.`
       );
+    }
+  }
+
+  /**
+   * One-shot compact reply for a quick-routed Command (PRD stories 11–12).
+   * Returns null when no model is configured or the call fails — the caller
+   * decides the fallback.
+   */
+  async generateQuickResponse(prompt: string): Promise<string | null> {
+    if (!this.model) return null;
+    try {
+      const { text } = await generateText({
+        model: this.model,
+        system:
+          "You are Blueberry's Main Agent. Answer the user's quick question in 1-3 compact sentences. Do not offer to start visible work unless asked.",
+        prompt,
+        temperature: DEFAULT_TEMPERATURE,
+      });
+      return text;
+    } catch (error) {
+      console.error("[LLMClient] quick response failed:", error);
+      return null;
     }
   }
 

@@ -47,6 +47,62 @@ describe("reduceIntent", () => {
     expect(state.workRuns).toHaveLength(0);
   });
 
+  it("choose-route resolves an ambiguous command into a planned Work Run", () => {
+    const pending = reduceIntent(createInitialGardenState(), {
+      type: "submit-command",
+      text: "What companies might buy Blueberry?",
+      mainAgentId: null,
+    }).state;
+    expect(pending.commands[0].status).toBe("awaiting-route");
+
+    const { state } = reduceIntent(pending, {
+      type: "choose-route",
+      commandId: pending.commands[0].id,
+      route: "work-run",
+    });
+
+    expect(state.commands[0].status).toBe("planning");
+    expect(state.workRuns).toHaveLength(1);
+  });
+
+  it("upgrade-command turns a completed quick command into a planned Work Run", () => {
+    const quick = reduceIntent(createInitialGardenState(), {
+      type: "submit-command",
+      text: "hello there",
+      mainAgentId: null,
+    }).state;
+
+    const { state } = reduceIntent(quick, {
+      type: "upgrade-command",
+      commandId: quick.commands[0].id,
+    });
+
+    expect(state.commands[0]).toMatchObject({
+      route: "work-run",
+      status: "planning",
+    });
+    expect(state.workRuns).toHaveLength(1);
+  });
+
+  it("quick-response attaches the compact reply to the quick command", () => {
+    const quick = reduceIntent(createInitialGardenState(), {
+      type: "submit-command",
+      text: "hello there",
+      mainAgentId: null,
+    }).state;
+
+    const { state } = reduceIntent(quick, {
+      type: "quick-response",
+      commandId: quick.commands[0].id,
+      text: "Hi! Ask me to find leads when you're ready.",
+    });
+
+    expect(state.commands[0].response).toBe(
+      "Hi! Ask me to find leads when you're ready.",
+    );
+    expect(state.commands[0].status).toBe("complete");
+  });
+
   it("approve-work-run flips the run to running and seeds demo berries", () => {
     const planned = reduceIntent(createInitialGardenState(), {
       type: "submit-command",

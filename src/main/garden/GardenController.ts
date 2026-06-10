@@ -52,7 +52,40 @@ export class GardenController {
     if (intent.type === "approve-work-run") {
       return this.approvePlan(intent.workRunId);
     }
-    return this.store.dispatch(intent);
+    const result = this.store.dispatch(intent);
+    this.maybeQuickRespond(intent);
+    return result;
+  }
+
+  /**
+   * After a submit/choose-route intent leaves a quick command completed with
+   * no reply yet, generate the compact Main Agent response and attach it via
+   * the `quick-response` intent (PRD stories 11–12). Fire-and-forget — the
+   * broadcast on dispatch updates the renderers when the reply lands.
+   */
+  private maybeQuickRespond(intent: GardenIntent): void {
+    if (intent.type !== "submit-command" && intent.type !== "choose-route") {
+      return;
+    }
+    const command = this.store
+      .getState()
+      .commands.find(
+        (cmd) => cmd.route === "quick" && cmd.status === "complete" && !cmd.response,
+      );
+    if (!command) return;
+
+    void this.window.sidebar.client
+      .generateQuickResponse(command.text)
+      .then((text) => {
+        this.store.dispatch({
+          type: "quick-response",
+          commandId: command.id,
+          text: text ?? "Quick response ready. (No LLM key configured.)",
+        });
+      })
+      .catch((err) =>
+        console.error("[GardenController] quick response error:", err),
+      );
   }
 
   resolveApproval(approvalId: string, approved: boolean): void {

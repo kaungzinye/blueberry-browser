@@ -13,10 +13,13 @@
 import {
   approveWorkRun,
   advanceWorkRun,
+  attachQuickResponse,
+  chooseRoute,
   completeWorkRun,
   showBerryOnGarden,
   submitCommand,
   syncTabBerries,
+  upgradeCommand,
   type GardenState,
   type TabBerrySnapshot,
 } from "../../renderer/garden/src/domain/gardenDomain";
@@ -29,6 +32,9 @@ import {
 export type GardenIntent =
   | { type: "submit-command"; text: string; mainAgentId: string | null }
   | { type: "new-command" }
+  | { type: "choose-route"; commandId: string; route: "quick" | "work-run" }
+  | { type: "upgrade-command"; commandId: string }
+  | { type: "quick-response"; commandId: string; text: string }
   | { type: "approve-work-run"; workRunId: string }
   | { type: "advance-work-run"; workRunId: string }
   | { type: "complete-work-run"; workRunId: string }
@@ -68,6 +74,17 @@ export const reduceIntent = (
       const spawned = spawnNewCommand(state);
       return { state: spawned.state, selectMainAgentId: spawned.mainAgentId };
     }
+
+    case "choose-route":
+      return { state: chooseRoute(state, intent.commandId, intent.route) };
+
+    case "upgrade-command":
+      return { state: upgradeCommand(state, intent.commandId) };
+
+    case "quick-response":
+      return {
+        state: attachQuickResponse(state, intent.commandId, intent.text),
+      };
 
     case "approve-work-run":
       return { state: approveWorkRun(state, intent.workRunId) };
