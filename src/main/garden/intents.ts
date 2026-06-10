@@ -14,7 +14,10 @@ import {
   approveWorkRun,
   advanceWorkRun,
   attachQuickResponse,
+  blockWorkRun,
   chooseRoute,
+  pauseWorkRun,
+  retryWorkRun,
   completeWorkRun,
   showBerryOnGarden,
   submitCommand,
@@ -38,6 +41,9 @@ export type GardenIntent =
   | { type: "approve-work-run"; workRunId: string }
   | { type: "advance-work-run"; workRunId: string }
   | { type: "complete-work-run"; workRunId: string }
+  | { type: "block-work-run"; workRunId: string; reason: string }
+  | { type: "pause-work-run"; workRunId: string }
+  | { type: "retry-work-run"; workRunId: string }
   | { type: "mark-command-done"; commandId: string }
   | { type: "reopen-command"; commandId: string }
   | { type: "show-berry"; berryId: string }
@@ -94,6 +100,15 @@ export const reduceIntent = (
 
     case "complete-work-run":
       return { state: completeWorkRun(state, intent.workRunId) };
+
+    case "block-work-run":
+      return { state: blockWorkRun(state, intent.workRunId, intent.reason) };
+
+    case "pause-work-run":
+      return { state: pauseWorkRun(state, intent.workRunId) };
+
+    case "retry-work-run":
+      return { state: retryWorkRun(state, intent.workRunId) };
 
     case "mark-command-done":
       return { state: markCommandCompleted(state, intent.commandId) };

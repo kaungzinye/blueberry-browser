@@ -488,6 +488,22 @@ export const GardenApp: React.FC = () => {
     });
   };
 
+  const handlePauseWorkRun = (): void => {
+    if (!runningWorkRun) return;
+    void window.gardenAPI?.dispatch({
+      type: "pause-work-run",
+      workRunId: runningWorkRun.id,
+    });
+  };
+
+  const handleRetryWorkRun = (): void => {
+    if (!selectedWorkRun) return;
+    void window.gardenAPI?.dispatch({
+      type: "retry-work-run",
+      workRunId: selectedWorkRun.id,
+    });
+  };
+
   const handleShowOnGarden = (berryId: string): void => {
     void window.gardenAPI?.dispatch({ type: "show-berry", berryId });
     setSelectedBerryId(berryId);
@@ -569,6 +585,14 @@ export const GardenApp: React.FC = () => {
         onAdvanceWorkRun={runningWorkRun ? handleAdvanceWorkRun : undefined}
         onCompleteWorkRun={
           runningWorkRun || completedWorkRun ? handleCompleteWorkRun : undefined
+        }
+        workRunStatus={selectedWorkRun?.status}
+        onPauseWorkRun={runningWorkRun ? handlePauseWorkRun : undefined}
+        onRetryWorkRun={
+          selectedWorkRun?.status === "blocked" ||
+          selectedWorkRun?.status === "interrupted"
+            ? handleRetryWorkRun
+            : undefined
         }
         mainAgentRoster={mainAgentRoster}
         selectedMainAgentId={selectedMainAgentId}

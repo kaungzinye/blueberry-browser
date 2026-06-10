@@ -60,6 +60,10 @@ interface GardenHudProps {
   showWorkRunControls?: boolean;
   onAdvanceWorkRun?: () => void;
   onCompleteWorkRun?: () => void;
+  /** Selected Work Run status — drives pause/retry controls (stories 45–47). */
+  workRunStatus?: string;
+  onPauseWorkRun?: () => void;
+  onRetryWorkRun?: () => void;
   mainAgentRoster: MainAgentRosterEntry[];
   selectedMainAgentId: string | null;
   mainAgentCycleScope: MainAgentCycleScope;
@@ -332,6 +336,9 @@ const MainAgentRosterPanel: React.FC<{
   showWorkRunControls?: boolean;
   onAdvanceWorkRun?: () => void;
   onCompleteWorkRun?: () => void;
+  workRunStatus?: string;
+  onPauseWorkRun?: () => void;
+  onRetryWorkRun?: () => void;
   onToggleExpanded: () => void;
 }> = ({
   roster,
@@ -350,6 +357,9 @@ const MainAgentRosterPanel: React.FC<{
   showWorkRunControls,
   onAdvanceWorkRun,
   onCompleteWorkRun,
+  workRunStatus,
+  onPauseWorkRun,
+  onRetryWorkRun,
   onToggleExpanded,
 }) => {
   return (
@@ -449,6 +459,11 @@ const MainAgentRosterPanel: React.FC<{
                 Advance
               </Button>
             )}
+            {onPauseWorkRun && (
+              <Button variant="ghost" size="md" className="w-full" onClick={onPauseWorkRun}>
+                Pause
+              </Button>
+            )}
             {onCompleteWorkRun && (
               <Button variant="success" size="md" className="w-full" onClick={onCompleteWorkRun}>
                 Complete run
@@ -456,6 +471,17 @@ const MainAgentRosterPanel: React.FC<{
             )}
           </div>
         )}
+        {(workRunStatus === "blocked" || workRunStatus === "interrupted") &&
+          onRetryWorkRun && (
+            <div className="space-y-1.5">
+              <p className="text-center font-mono text-[10px] uppercase tracking-wide text-tm-blocker">
+                {workRunStatus === "blocked" ? "Run blocked" : "Run paused"}
+              </p>
+              <Button variant="primary" size="md" className="w-full" onClick={onRetryWorkRun}>
+                {workRunStatus === "blocked" ? "Retry" : "Resume"}
+              </Button>
+            </div>
+          )}
         <p className="text-center font-mono text-[10px] text-ink-faint">
           {berryCount} {berryCount === 1 ? "berry" : "berries"} · Tab cycles
         </p>
@@ -1041,6 +1067,9 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     showWorkRunControls,
     onAdvanceWorkRun,
     onCompleteWorkRun,
+    workRunStatus,
+    onPauseWorkRun,
+    onRetryWorkRun,
     mainAgentRoster,
     selectedMainAgentId,
     mainAgentCycleScope,
@@ -1251,6 +1280,9 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
               showWorkRunControls={showWorkRunControls}
               onAdvanceWorkRun={onAdvanceWorkRun}
               onCompleteWorkRun={onCompleteWorkRun}
+              workRunStatus={workRunStatus}
+              onPauseWorkRun={onPauseWorkRun}
+              onRetryWorkRun={onRetryWorkRun}
               onToggleExpanded={() => setRightPanelExpanded(false)}
             />
           </div>

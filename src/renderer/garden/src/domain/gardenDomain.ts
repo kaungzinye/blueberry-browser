@@ -648,6 +648,94 @@ export const advanceWorkRun = (
   };
 };
 
+/** Shared status flip for failure/recovery transitions (PRD stories 45–47). */
+const setWorkRunStatus = (
+  state: GardenState,
+  workRunId: string,
+  runStatus: WorkRunStatus,
+  agentState: Agent["state"],
+  agentLabel: string,
+  telemetry?: { kind: TelemetryKind; label: string; icon: string },
+): GardenState => {
+  const workRun = state.workRuns.find(
+    (candidate) => candidate.id === workRunId,
+  );
+  if (!workRun) return state;
+
+  return {
+    ...state,
+    workRuns: state.workRuns.map((candidate) =>
+      candidate.id === workRunId
+        ? { ...candidate, status: runStatus }
+        : candidate,
+    ),
+    commands: state.commands.map((command) =>
+      command.workRunId === workRunId
+        ? { ...command, status: runStatus as CommandStatus }
+        : command,
+    ),
+    agents: state.agents.map((agent) =>
+      agent.id === workRun.mainAgentId
+        ? { ...agent, state: agentState, currentLabel: agentLabel }
+        : agent,
+    ),
+    telemetry: telemetry
+      ? [
+          ...state.telemetry,
+          {
+            id: `telemetry-${state.telemetry.length + 1}`,
+            workRunId,
+            agentId: workRun.mainAgentId,
+            ...telemetry,
+          },
+        ]
+      : state.telemetry,
+  };
+};
+
+/** A blocker hit the run: surface it on the run, the agent, and telemetry. */
+export const blockWorkRun = (
+  state: GardenState,
+  workRunId: string,
+  reason: string,
+): GardenState =>
+  setWorkRunStatus(state, workRunId, "blocked", "blocked", `Blocked: ${reason}`, {
+    kind: "intent",
+    label: `Blocked: ${reason}`,
+    icon: "blocked",
+  });
+
+/** User paused the run — cooperative stop, resumable via retry. */
+export const pauseWorkRun = (
+  state: GardenState,
+  workRunId: string,
+): GardenState =>
+  setWorkRunStatus(state, workRunId, "interrupted", "idle", "Paused");
+
+/** Resume a blocked or paused run with a visible retry attempt (story 47). */
+export const retryWorkRun = (
+  state: GardenState,
+  workRunId: string,
+): GardenState => {
+  const workRun = state.workRuns.find(
+    (candidate) => candidate.id === workRunId,
+  );
+  if (
+    !workRun ||
+    (workRun.status !== "blocked" && workRun.status !== "interrupted")
+  ) {
+    return state;
+  }
+  return setWorkRunStatus(
+    state,
+    workRunId,
+    "running",
+    "acting",
+    "Retrying after blocker",
+    { kind: "action", label: "Retrying after blocker", icon: "retry" },
+  );
+};
+
 export const completeWorkRun = (
   state: GardenState,
   workRunId: string,

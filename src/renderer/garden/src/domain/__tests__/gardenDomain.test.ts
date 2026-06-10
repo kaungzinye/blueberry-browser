@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceWorkRun,
+  blockWorkRun,
   chooseRoute,
+  pauseWorkRun,
+  retryWorkRun,
   approveWorkRun,
   completeWorkRun,
   createInitialGardenState,
@@ -121,6 +124,47 @@ describe("Garden command routing", () => {
       workRunId: next.workRuns[0].id,
     });
     expect(next.workRuns[0].status).toBe("planning");
+  });
+});
+
+describe("Work Run failure and recovery", () => {
+  const runningState = (): ReturnType<typeof createInitialGardenState> =>
+    approveWorkRun(
+      submitCommand(createInitialGardenState(), demoCommand).state,
+      "work-run-1"
+    );
+
+  it("blocking a run surfaces the blocker on the run, agent, and telemetry", () => {
+    const blocked = blockWorkRun(runningState(), "work-run-1", "Page failed to load");
+
+    expect(blocked.workRuns[0].status).toBe("blocked");
+    expect(blocked.agents[0].state).toBe("blocked");
+    expect(blocked.telemetry.at(-1)).toMatchObject({
+      kind: "intent",
+      label: "Blocked: Page failed to load",
+    });
+  });
+
+  it("retrying a blocked run resumes it with a visible retry attempt", () => {
+    const blocked = blockWorkRun(runningState(), "work-run-1", "Page failed to load");
+
+    const retried = retryWorkRun(blocked, "work-run-1");
+
+    expect(retried.workRuns[0].status).toBe("running");
+    expect(retried.agents[0].state).toBe("acting");
+    expect(retried.telemetry.at(-1)).toMatchObject({
+      kind: "action",
+      label: "Retrying after blocker",
+    });
+  });
+
+  it("pausing and resuming a running run round-trips through interrupted", () => {
+    const paused = pauseWorkRun(runningState(), "work-run-1");
+    expect(paused.workRuns[0].status).toBe("interrupted");
+    expect(paused.agents[0].state).toBe("idle");
+
+    const resumed = retryWorkRun(paused, "work-run-1");
+    expect(resumed.workRuns[0].status).toBe("running");
   });
 });
 
