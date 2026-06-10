@@ -127,6 +127,40 @@ describe("Garden command routing", () => {
   });
 });
 
+describe("Source berry choice on completion", () => {
+  const running = (): ReturnType<typeof createInitialGardenState> =>
+    approveWorkRun(
+      submitCommand(createInitialGardenState(), demoCommand).state,
+      "work-run-1"
+    );
+
+  it("collapses source berries off the map by default", () => {
+    const done = completeWorkRun(running(), "work-run-1");
+    const sources = done.berries.filter((b) =>
+      b.id.startsWith("berry-strawberry")
+    );
+    expect(sources.length).toBeGreaterThan(0);
+    expect(sources.every((b) => !b.onMap)).toBe(true);
+  });
+
+  it("keeps source berries visible when the user chooses 'keep'", () => {
+    const done = completeWorkRun(running(), "work-run-1", "keep");
+    const sources = done.berries.filter((b) =>
+      b.id.startsWith("berry-strawberry")
+    );
+    expect(sources.every((b) => b.onMap)).toBe(true);
+  });
+
+  it("removes source berries entirely when the user chooses 'close'", () => {
+    const done = completeWorkRun(running(), "work-run-1", "close");
+    expect(
+      done.berries.some((b) => b.id.startsWith("berry-strawberry"))
+    ).toBe(false);
+    // Output berries survive.
+    expect(done.berries.some((b) => b.kind === "sheet")).toBe(true);
+  });
+});
+
 describe("Work Run failure and recovery", () => {
   const runningState = (): ReturnType<typeof createInitialGardenState> =>
     approveWorkRun(

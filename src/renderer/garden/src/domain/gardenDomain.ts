@@ -736,9 +736,13 @@ export const retryWorkRun = (
   );
 };
 
+/** What happens to source Berries when a run completes (PRD stories 60–61). */
+export type SourceBerryChoice = "collapse" | "keep" | "close";
+
 export const completeWorkRun = (
   state: GardenState,
   workRunId: string,
+  sourceChoice: SourceBerryChoice = "collapse",
 ): GardenState => {
   const workRun = state.workRuns.find(
     (candidate) => candidate.id === workRunId,
@@ -796,15 +800,25 @@ export const completeWorkRun = (
         : candidate,
     ),
     berries: [
-      ...state.berries.map((berry) => {
-        if (SOURCE_BERRY_IDS.includes(berry.id)) {
-          return { ...berry, onMap: false, status: "complete" as const };
-        }
-        if (berry.kind === "sheet" || berry.kind === "xlsx") {
-          return { ...berry, onMap: true, status: "complete" as const };
-        }
-        return berry;
-      }),
+      ...state.berries
+        .filter(
+          (berry) =>
+            sourceChoice !== "close" || !SOURCE_BERRY_IDS.includes(berry.id),
+        )
+        .map((berry) => {
+          if (SOURCE_BERRY_IDS.includes(berry.id)) {
+            // collapse (default) hides sources; keep leaves them visible.
+            return {
+              ...berry,
+              onMap: sourceChoice === "keep",
+              status: "complete" as const,
+            };
+          }
+          if (berry.kind === "sheet" || berry.kind === "xlsx") {
+            return { ...berry, onMap: true, status: "complete" as const };
+          }
+          return berry;
+        }),
       summaryBerry,
       reportBerry,
     ],

@@ -18,6 +18,7 @@ import {
   type BerryKind,
   type CommandLogEntry,
   type LedgerEntry,
+  type SourceBerryChoice,
 } from "../domain/gardenDomain";
 import type { Agent, Berry } from "../domain/gardenDomain";
 import type {
@@ -59,7 +60,7 @@ interface GardenHudProps {
   onApprovePlan?: () => void;
   showWorkRunControls?: boolean;
   onAdvanceWorkRun?: () => void;
-  onCompleteWorkRun?: () => void;
+  onCompleteWorkRun?: (sourceChoice: SourceBerryChoice) => void;
   /** Selected Work Run status — drives pause/retry controls (stories 45–47). */
   workRunStatus?: string;
   onPauseWorkRun?: () => void;
@@ -335,7 +336,7 @@ const MainAgentRosterPanel: React.FC<{
   onApprovePlan?: () => void;
   showWorkRunControls?: boolean;
   onAdvanceWorkRun?: () => void;
-  onCompleteWorkRun?: () => void;
+  onCompleteWorkRun?: (sourceChoice: SourceBerryChoice) => void;
   workRunStatus?: string;
   onPauseWorkRun?: () => void;
   onRetryWorkRun?: () => void;
@@ -362,6 +363,8 @@ const MainAgentRosterPanel: React.FC<{
   onRetryWorkRun,
   onToggleExpanded,
 }) => {
+  // Stories 60–61: what happens to source Berries when the run completes.
+  const [sourceChoice, setSourceChoice] = useState<SourceBerryChoice>("collapse");
   return (
     <div
       className={`${PANEL} hud-rise flex max-h-full min-h-0 w-full flex-col rounded-2xl shadow-panel`}
@@ -465,9 +468,35 @@ const MainAgentRosterPanel: React.FC<{
               </Button>
             )}
             {onCompleteWorkRun && (
-              <Button variant="success" size="md" className="w-full" onClick={onCompleteWorkRun}>
-                Complete run
-              </Button>
+              <>
+                <div className="flex items-center justify-center gap-1">
+                  <span className="mr-1 font-mono text-[9px] uppercase tracking-wide text-ink-faint">
+                    Sources
+                  </span>
+                  {(["collapse", "keep", "close"] as const).map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      onClick={() => setSourceChoice(choice)}
+                      className={`rounded-md px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide transition-colors ${
+                        sourceChoice === choice
+                          ? "bg-accent/15 text-accent"
+                          : "text-ink-faint hover:text-ink"
+                      }`}
+                    >
+                      {choice}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  variant="success"
+                  size="md"
+                  className="w-full"
+                  onClick={() => onCompleteWorkRun(sourceChoice)}
+                >
+                  Complete run
+                </Button>
+              </>
             )}
           </div>
         )}

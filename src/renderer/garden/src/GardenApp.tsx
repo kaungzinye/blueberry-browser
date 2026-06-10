@@ -37,6 +37,7 @@ import {
   getReaderContent,
   getVisibleBerries,
   TelemetryEvent,
+  type SourceBerryChoice,
 } from "./domain/gardenDomain";
 import {
   cycleMainAgentId,
@@ -516,12 +517,13 @@ export const GardenApp: React.FC = () => {
     });
   };
 
-  const handleCompleteWorkRun = (): void => {
+  const handleCompleteWorkRun = (sourceChoice: SourceBerryChoice): void => {
     const target = runningWorkRun ?? completedWorkRun;
     if (!target) return;
     void window.gardenAPI?.dispatch({
       type: "complete-work-run",
       workRunId: target.id,
+      sourceChoice,
     });
   };
 

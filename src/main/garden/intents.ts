@@ -24,6 +24,7 @@ import {
   syncTabBerries,
   upgradeCommand,
   type GardenState,
+  type SourceBerryChoice,
   type TabBerrySnapshot,
 } from "../../renderer/garden/src/domain/gardenDomain";
 import {
@@ -40,7 +41,11 @@ export type GardenIntent =
   | { type: "quick-response"; commandId: string; text: string }
   | { type: "approve-work-run"; workRunId: string }
   | { type: "advance-work-run"; workRunId: string }
-  | { type: "complete-work-run"; workRunId: string }
+  | {
+      type: "complete-work-run";
+      workRunId: string;
+      sourceChoice?: SourceBerryChoice;
+    }
   | { type: "block-work-run"; workRunId: string; reason: string }
   | { type: "pause-work-run"; workRunId: string }
   | { type: "retry-work-run"; workRunId: string }
@@ -99,7 +104,9 @@ export const reduceIntent = (
       return { state: advanceWorkRun(state, intent.workRunId) };
 
     case "complete-work-run":
-      return { state: completeWorkRun(state, intent.workRunId) };
+      return {
+        state: completeWorkRun(state, intent.workRunId, intent.sourceChoice),
+      };
 
     case "block-work-run":
       return { state: blockWorkRun(state, intent.workRunId, intent.reason) };
