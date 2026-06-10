@@ -41,6 +41,12 @@ interface GardenHudProps {
   viewport: ViewportTransform;
   agent: Agent | undefined;
   latestAgentReply: string | null;
+  /** Selected command is ambiguous — ask quick vs visible (PRD story 14). */
+  awaitingRoute?: boolean;
+  onChooseRoute?: (route: "quick" | "work-run") => void;
+  /** Selected command is a finished quick reply that can become a Work Run. */
+  upgradeable?: boolean;
+  onUpgradeCommand?: () => void;
   commandText: string;
   onCommandTextChange: (value: string) => void;
   onSubmit: () => void;
@@ -723,6 +729,42 @@ const ArtifactsShelf: React.FC<{
   );
 };
 
+/**
+ * Routing affordances row — "answer quickly or run visibly?" for ambiguous
+ * commands, and "run visibly instead" to upgrade a finished quick reply.
+ */
+const RouteChoiceRow: React.FC<{
+  awaitingRoute?: boolean;
+  onChooseRoute?: (route: "quick" | "work-run") => void;
+  upgradeable?: boolean;
+  onUpgradeCommand?: () => void;
+}> = ({ awaitingRoute, onChooseRoute, upgradeable, onUpgradeCommand }) => {
+  if (awaitingRoute && onChooseRoute) {
+    return (
+      <div className="pointer-events-auto hud-rise flex items-center justify-center gap-2">
+        <span className={SECTION_LABEL}>Quick answer or visible run?</span>
+        <Button variant="subtle" size="sm" onClick={() => onChooseRoute("quick")}>
+          Answer quickly
+        </Button>
+        <Button variant="primary" size="sm" onClick={() => onChooseRoute("work-run")}>
+          Run visibly
+        </Button>
+      </div>
+    );
+  }
+  if (upgradeable && onUpgradeCommand) {
+    return (
+      <div className="pointer-events-auto hud-fade flex justify-center">
+        <Button variant="subtle" size="sm" onClick={onUpgradeCommand}>
+          <Sparkles className="size-3" />
+          Run visibly instead
+        </Button>
+      </div>
+    );
+  }
+  return null;
+};
+
 /** Chat-only column: no background; garden shows through. */
 const HudChatColumn: React.FC<{
   latestAgentReply: string | null;
@@ -730,17 +772,20 @@ const HudChatColumn: React.FC<{
   onCommandTextChange: (value: string) => void;
   onSubmit: () => void;
   expandButton: React.ReactNode;
+  routeChoice: React.ReactNode;
 }> = ({
   latestAgentReply,
   commandText,
   onCommandTextChange,
   onSubmit,
   expandButton,
+  routeChoice,
 }) => (
   // Same max-w-3xl column as the expanded chat sheet, so the input keeps one
   // width and one axis across collapsed/expanded states — no resize jump.
   <div className="pointer-events-none flex w-full max-w-3xl flex-col justify-end gap-2 px-4 pb-3 pt-2 hud-rise">
     <div className="pointer-events-auto flex justify-center">{expandButton}</div>
+    {routeChoice}
     {latestAgentReply && (
       <div className="pointer-events-auto relative max-h-[5.5rem] px-1 text-center hud-fade">
         <p className="line-clamp-4 text-sm leading-relaxed text-accent-strong/85">
@@ -764,6 +809,10 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     viewport,
     agent,
     latestAgentReply,
+    awaitingRoute,
+    onChooseRoute,
+    upgradeable,
+    onUpgradeCommand,
     commandText,
     onCommandTextChange,
     onSubmit,
@@ -1001,7 +1050,13 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
                     )}
                   </div>
                 </ScrollArea>
-                <div className="shrink-0 border-t border-line/10 px-4 py-3">
+                <div className="shrink-0 space-y-2 border-t border-line/10 px-4 py-3">
+                  <RouteChoiceRow
+                    awaitingRoute={awaitingRoute}
+                    onChooseRoute={onChooseRoute}
+                    upgradeable={upgradeable}
+                    onUpgradeCommand={onUpgradeCommand}
+                  />
                   <CommandInput
                     commandText={commandText}
                     onCommandTextChange={onCommandTextChange}
@@ -1028,6 +1083,14 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
               onCommandTextChange={onCommandTextChange}
               onSubmit={onSubmit}
               expandButton={expandButton}
+              routeChoice={
+                <RouteChoiceRow
+                  awaitingRoute={awaitingRoute}
+                  onChooseRoute={onChooseRoute}
+                  upgradeable={upgradeable}
+                  onUpgradeCommand={onUpgradeCommand}
+                />
+              }
             />
           )}
         </div>

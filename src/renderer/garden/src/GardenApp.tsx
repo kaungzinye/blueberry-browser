@@ -130,6 +130,20 @@ export const GardenApp: React.FC = () => {
   const mainAgent = state.agents.find(
     (agent) => agent.id === selectedMainAgentId,
   );
+
+  // Routing affordances (PRD stories 14–15) for the selected command.
+  const awaitingRoute = selectedCommand?.status === "awaiting-route";
+  const upgradeable =
+    selectedCommand?.route === "quick" &&
+    selectedCommand.status === "complete" &&
+    !selectedCommand.workRunId;
+
+  // Surface the Main Agent's compact quick reply when it lands (broadcast).
+  useEffect(() => {
+    if (selectedCommand?.response) {
+      setLatestAgentReply(selectedCommand.response);
+    }
+  }, [selectedCommand?.response]);
   const visibleBerries = getVisibleBerries(state);
   const ledgerEntries = getLedgerEntries(state);
 
@@ -396,6 +410,23 @@ export const GardenApp: React.FC = () => {
     void window.gardenAPI?.dispatch({ type: "reopen-command", commandId });
   };
 
+  const handleChooseRoute = (route: "quick" | "work-run"): void => {
+    if (!selectedCommand) return;
+    void window.gardenAPI?.dispatch({
+      type: "choose-route",
+      commandId: selectedCommand.id,
+      route,
+    });
+  };
+
+  const handleUpgradeCommand = (): void => {
+    if (!selectedCommand) return;
+    void window.gardenAPI?.dispatch({
+      type: "upgrade-command",
+      commandId: selectedCommand.id,
+    });
+  };
+
   const handleApprovePlan = (): void => {
     if (!plannedWorkRun) return;
     // Main decides real-agent vs scripted-demo execution and broadcasts back.
@@ -511,6 +542,10 @@ export const GardenApp: React.FC = () => {
         viewport={viewport}
         agent={mainAgent}
         latestAgentReply={latestAgentReply}
+        awaitingRoute={awaitingRoute}
+        onChooseRoute={handleChooseRoute}
+        upgradeable={upgradeable}
+        onUpgradeCommand={handleUpgradeCommand}
         commandText={commandText}
         onCommandTextChange={setCommandText}
         onSubmit={handleSubmit}
