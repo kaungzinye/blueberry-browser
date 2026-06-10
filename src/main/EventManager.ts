@@ -1,7 +1,12 @@
 import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
-import { AgentRunner } from "./AgentRunner";
-import type { RunCommandOpts } from "./AgentRunner";
+import type { GardenIntent } from "./garden/intents";
+import {
+  GARDEN_DISPATCH_CHANNEL,
+  GARDEN_GET_STATE_CHANNEL,
+  GARDEN_RESOLVE_APPROVAL_CHANNEL,
+  GARDEN_SUBMIT_TURN_CHANNEL,
+} from "./garden/channels";
 
 export class EventManager {
   private mainWindow: Window;
@@ -240,15 +245,37 @@ export class EventManager {
         : Boolean(process.env.ANTHROPIC_API_KEY);
     });
 
-    // Start a real agent Work Run
-    ipcMain.handle("garden-run-command", async (_, opts: RunCommandOpts) => {
-      const runner = new AgentRunner(this.mainWindow);
-      // Fire-and-forget: patches stream to garden renderer via AGENT_PATCH_CHANNEL
-      runner.run(opts).catch((err) => {
-        console.error("[EventManager] garden-run-command error:", err);
-      });
-      return { started: true };
+    // ── Main-owned Garden state (ADR-0003) ─────────────────────────────────
+
+    // Seed: a renderer view requests the current snapshot on mount.
+    ipcMain.handle(GARDEN_GET_STATE_CHANNEL, () =>
+      this.mainWindow.gardenController.getSnapshot(),
+    );
+
+    // Intent: a view dispatches a domain mutation; main reduces + broadcasts.
+    // Returns only the selection feedback (full state arrives via broadcast).
+    ipcMain.handle(GARDEN_DISPATCH_CHANNEL, (_, intent: GardenIntent) => {
+      const result = this.mainWindow.gardenController.dispatch(intent);
+      return { selectMainAgentId: result.selectMainAgentId, hint: result.hint };
     });
+
+    // Approval: resolve a blocking browser_action gate (Approve/Deny).
+    ipcMain.handle(
+      GARDEN_RESOLVE_APPROVAL_CHANNEL,
+      (_, approvalId: string, approved: boolean) => {
+        this.mainWindow.gardenController.resolveApproval(approvalId, approved);
+        return true;
+      },
+    );
+
+    // Follow-up turn: deliver a steer/continuation to a Main Agent session.
+    ipcMain.handle(
+      GARDEN_SUBMIT_TURN_CHANNEL,
+      (_, agentId: string, text: string) => {
+        this.mainWindow.gardenController.submitTurn(agentId, text);
+        return true;
+      },
+    );
   }
 
   private handleGardenEvents(): void {
@@ -305,7 +332,7 @@ export class EventManager {
     if (this.mainWindow.topBar.view.webContents !== sender) {
       this.mainWindow.topBar.view.webContents.send(
         "dark-mode-updated",
-        isDarkMode
+        isDarkMode,
       );
     }
 
@@ -313,7 +340,7 @@ export class EventManager {
     if (this.mainWindow.sidebar.view.webContents !== sender) {
       this.mainWindow.sidebar.view.webContents.send(
         "dark-mode-updated",
-        isDarkMode
+        isDarkMode,
       );
     }
 
@@ -327,6 +354,7 @@ export class EventManager {
 
   // Clean up event listeners
   public cleanup(): void {
+    this.mainWindow.gardenController.cleanup();
     ipcMain.removeAllListeners();
   }
 }

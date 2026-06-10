@@ -1,6 +1,16 @@
 export type CommandRoute = "quick" | "work-run";
-export type CommandStatus = "complete" | "planning" | "running" | "blocked";
-export type WorkRunStatus = "planning" | "running" | "complete" | "blocked";
+export type CommandStatus =
+  | "complete"
+  | "planning"
+  | "running"
+  | "blocked"
+  | "interrupted";
+export type WorkRunStatus =
+  | "planning"
+  | "running"
+  | "complete"
+  | "blocked"
+  | "interrupted";
 
 export interface Agent {
   id: string;
@@ -200,17 +210,21 @@ export type SubmitCommandResult = {
 export const submitCommand = (
   state: GardenState,
   text: string,
-  mainAgentId?: string | null
+  mainAgentId?: string | null,
 ): SubmitCommandResult => {
   if (mainAgentId) {
     const command = state.commands.find(
-      (candidate) => candidate.mainAgentId === mainAgentId
+      (candidate) => candidate.mainAgentId === mainAgentId,
     );
     if (!command) {
       return createCommandWithNewAgent(state, text);
     }
     if (command.status === "complete") {
-      return { state, mainAgentId, hint: "This Command is completed. Start a New Command." };
+      return {
+        state,
+        mainAgentId,
+        hint: "This Command is completed. Start a New Command.",
+      };
     }
     if (command.text.trim() && command.workRunId) {
       return {
@@ -231,9 +245,11 @@ export const submitCommand = (
 const applyCommandText = (
   state: GardenState,
   commandId: string,
-  text: string
+  text: string,
 ): GardenState => {
-  const command = state.commands.find((candidate) => candidate.id === commandId);
+  const command = state.commands.find(
+    (candidate) => candidate.id === commandId,
+  );
   if (!command) return state;
 
   const route = classifyCommand(text);
@@ -243,13 +259,17 @@ const applyCommandText = (
       ...state,
       agents: state.agents.map((agent) =>
         agent.id === command.mainAgentId
-          ? { ...agent, state: "complete", currentLabel: "Quick response ready" }
-          : agent
+          ? {
+              ...agent,
+              state: "complete",
+              currentLabel: "Quick response ready",
+            }
+          : agent,
       ),
       commands: state.commands.map((candidate) =>
         candidate.id === commandId
           ? { ...candidate, text, route, status: "complete" }
-          : candidate
+          : candidate,
       ),
     };
   }
@@ -266,12 +286,12 @@ const applyCommandText = (
             state: "planning",
             currentLabel: "Preparing a visible work plan",
           }
-        : agent
+        : agent,
     ),
     commands: state.commands.map((candidate) =>
       candidate.id === commandId
         ? { ...candidate, text, route, status: "planning", workRunId }
-        : candidate
+        : candidate,
     ),
     workRuns: command.workRunId
       ? state.workRuns
@@ -292,7 +312,7 @@ const applyCommandText = (
 
 const createCommandWithNewAgent = (
   state: GardenState,
-  text: string
+  text: string,
 ): SubmitCommandResult => {
   const route = classifyCommand(text);
   const agent = createMainAgent(state);
@@ -361,9 +381,11 @@ const createCommandWithNewAgent = (
 
 export const approveWorkRun = (
   state: GardenState,
-  workRunId: string
+  workRunId: string,
 ): GardenState => {
-  const workRun = state.workRuns.find((candidate) => candidate.id === workRunId);
+  const workRun = state.workRuns.find(
+    (candidate) => candidate.id === workRunId,
+  );
   if (!workRun) return state;
 
   return {
@@ -371,7 +393,7 @@ export const approveWorkRun = (
     commands: state.commands.map((command) =>
       command.workRunId === workRunId
         ? { ...command, status: "running" }
-        : command
+        : command,
     ),
     agents: state.agents.map((agent) =>
       agent.id === workRun.mainAgentId
@@ -380,12 +402,12 @@ export const approveWorkRun = (
             state: "acting",
             currentLabel: "Reading Strawberry sales prospecting page",
           }
-        : agent
+        : agent,
     ),
     workRuns: state.workRuns.map((candidate) =>
       candidate.id === workRunId
         ? { ...candidate, status: "running", step: 0 }
-        : candidate
+        : candidate,
     ),
     berries: createDemoBerries(workRunId),
     telemetry: [
@@ -404,9 +426,11 @@ export const approveWorkRun = (
 
 export const advanceWorkRun = (
   state: GardenState,
-  workRunId: string
+  workRunId: string,
 ): GardenState => {
-  const workRun = state.workRuns.find((candidate) => candidate.id === workRunId);
+  const workRun = state.workRuns.find(
+    (candidate) => candidate.id === workRunId,
+  );
   if (!workRun || workRun.status !== "running") return state;
 
   const stepIndex = workRun.step;
@@ -426,12 +450,12 @@ export const advanceWorkRun = (
             state: "acting",
             currentLabel: step.agentLabel,
           }
-        : agent
+        : agent,
     ),
     workRuns: state.workRuns.map((candidate) =>
       candidate.id === workRunId
         ? { ...candidate, step: candidate.step + 1 }
-        : candidate
+        : candidate,
     ),
     berries: state.berries.map((berry) => {
       if (step.telemetry.berryId && berry.id === step.telemetry.berryId) {
@@ -461,9 +485,11 @@ export const advanceWorkRun = (
 
 export const completeWorkRun = (
   state: GardenState,
-  workRunId: string
+  workRunId: string,
 ): GardenState => {
-  const workRun = state.workRuns.find((candidate) => candidate.id === workRunId);
+  const workRun = state.workRuns.find(
+    (candidate) => candidate.id === workRunId,
+  );
   if (!workRun) return state;
 
   const summaryBerry: Berry = {
@@ -500,7 +526,7 @@ export const completeWorkRun = (
     commands: state.commands.map((command) =>
       command.workRunId === workRunId
         ? { ...command, status: "complete" }
-        : command
+        : command,
     ),
     agents: state.agents.map((agent) =>
       agent.id === workRun.mainAgentId
@@ -509,12 +535,12 @@ export const completeWorkRun = (
             state: "complete",
             currentLabel: "Work Run complete",
           }
-        : agent
+        : agent,
     ),
     workRuns: state.workRuns.map((candidate) =>
       candidate.id === workRunId
         ? { ...candidate, status: "complete", step: WORK_RUN_STEPS.length }
-        : candidate
+        : candidate,
     ),
     berries: [
       ...state.berries.map((berry) => {
@@ -546,19 +572,19 @@ export const completeWorkRun = (
 
 export const hasActiveWorkRun = (state: GardenState): boolean =>
   state.workRuns.some(
-    (run) => run.status === "planning" || run.status === "running"
+    (run) => run.status === "planning" || run.status === "running",
   );
 
 export const syncTabBerries = (
   state: GardenState,
-  snapshots: TabBerrySnapshot[]
+  snapshots: TabBerrySnapshot[],
 ): GardenState => {
   if (hasActiveWorkRun(state)) return state;
 
   const preserved = state.berries.filter((berry) => !berry.browserTabId);
   const synced = snapshots.map((snapshot, index) => {
     const existing = state.berries.find(
-      (berry) => berry.browserTabId === snapshot.browserTabId
+      (berry) => berry.browserTabId === snapshot.browserTabId,
     );
     const layout = layoutSyncedTabBerry(index);
 
@@ -569,7 +595,8 @@ export const syncTabBerries = (
       title: snapshot.title,
       subtitle: tabSubtitle(snapshot.url),
       url: snapshot.url,
-      screenshotDataUrl: snapshot.screenshotDataUrl ?? existing?.screenshotDataUrl,
+      screenshotDataUrl:
+        snapshot.screenshotDataUrl ?? existing?.screenshotDataUrl,
       x: existing?.x ?? layout.x,
       y: existing?.y ?? layout.y,
       width: existing?.width ?? 240,
@@ -595,7 +622,7 @@ export const getReaderContent = (berry: Berry): string | null => {
 
 export const showBerryOnGarden = (
   state: GardenState,
-  berryId: string
+  berryId: string,
 ): GardenState => ({
   ...state,
   berries: state.berries.map((berry) =>
@@ -606,7 +633,7 @@ export const showBerryOnGarden = (
           x: berry.x > 0 ? berry.x : 620,
           y: berry.y > 0 ? berry.y : 520,
         }
-      : berry
+      : berry,
   ),
 });
 
@@ -734,7 +761,8 @@ const createDemoBerries = (workRunId: string): Berry[] => [
   },
 ];
 
-const createId = (prefix: string, index: number): string => `${prefix}-${index}`;
+const createId = (prefix: string, index: number): string =>
+  `${prefix}-${index}`;
 
 const DEMO_BRIEF_MARKDOWN = `# Blueberry sales lead brief
 

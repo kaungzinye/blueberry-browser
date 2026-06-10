@@ -1,6 +1,12 @@
 import { contextBridge } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
-import { AGENT_PATCH_CHANNEL } from "../main/AgentRunner";
+import {
+  GARDEN_STATE_CHANNEL,
+  GARDEN_DISPATCH_CHANNEL,
+  GARDEN_GET_STATE_CHANNEL,
+  GARDEN_RESOLVE_APPROVAL_CHANNEL,
+  GARDEN_SUBMIT_TURN_CHANNEL,
+} from "../main/garden/channels";
 
 interface TabBerrySnapshot {
   browserTabId: string;
@@ -9,37 +15,52 @@ interface TabBerrySnapshot {
   screenshotDataUrl?: string;
 }
 
-interface RunCommandOpts {
-  commandText: string;
-  commandId: string;
-  agentId: string;
-  workRunId: string;
-  gardenName?: string;
-}
-
 const gardenAPI = {
-  openUrl: (url: string) => electronAPI.ipcRenderer.invoke("garden-open-url", url),
-  focusTab: (tabId: string) => electronAPI.ipcRenderer.invoke("garden-focus-tab", tabId),
+  openUrl: (url: string) =>
+    electronAPI.ipcRenderer.invoke("garden-open-url", url),
+  focusTab: (tabId: string) =>
+    electronAPI.ipcRenderer.invoke("garden-focus-tab", tabId),
   getTabBerries: () =>
-    electronAPI.ipcRenderer.invoke("garden-get-tab-berries") as Promise<TabBerrySnapshot[]>,
+    electronAPI.ipcRenderer.invoke("garden-get-tab-berries") as Promise<
+      TabBerrySnapshot[]
+    >,
   showGarden: () => electronAPI.ipcRenderer.invoke("garden-show"),
 
   /** Returns true when an API key is configured in .env. */
   hasApiKey: (): Promise<boolean> =>
     electronAPI.ipcRenderer.invoke("garden-has-api-key"),
 
-  /** Start a real agent Work Run. Patches stream via onAgentPatch. */
-  runCommand: (opts: RunCommandOpts): Promise<{ started: boolean }> =>
-    electronAPI.ipcRenderer.invoke("garden-run-command", opts),
+  // ── Main-owned state (ADR-0003) ──────────────────────────────────────────
+
+  /** Seed: fetch the current snapshot (state + pending approval) on mount. */
+  getState: () => electronAPI.ipcRenderer.invoke(GARDEN_GET_STATE_CHANNEL),
+
+  /** Dispatch a domain intent to main; returns selection feedback. */
+  dispatch: (intent: unknown) =>
+    electronAPI.ipcRenderer.invoke(GARDEN_DISPATCH_CHANNEL, intent),
+
+  /** Resolve a blocking browser_action Approval gate. */
+  resolveApproval: (approvalId: string, approved: boolean) =>
+    electronAPI.ipcRenderer.invoke(
+      GARDEN_RESOLVE_APPROVAL_CHANNEL,
+      approvalId,
+      approved,
+    ),
+
+  /** Deliver a follow-up turn to a Main Agent session. */
+  submitTurn: (agentId: string, text: string) =>
+    electronAPI.ipcRenderer.invoke(GARDEN_SUBMIT_TURN_CHANNEL, agentId, text),
 
   /**
-   * Subscribe to GardenStatePatch events emitted by the agent runner.
-   * Returns an unsubscribe function.
+   * Subscribe to full state-snapshot broadcasts from main. Returns an
+   * unsubscribe function.
    */
-  onAgentPatch: (cb: (patch: unknown) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, patch: unknown) => cb(patch);
-    electronAPI.ipcRenderer.on(AGENT_PATCH_CHANNEL, listener);
-    return () => electronAPI.ipcRenderer.removeListener(AGENT_PATCH_CHANNEL, listener);
+  onGardenState: (cb: (snapshot: unknown) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: unknown) =>
+      cb(snapshot);
+    electronAPI.ipcRenderer.on(GARDEN_STATE_CHANNEL, listener);
+    return () =>
+      electronAPI.ipcRenderer.removeListener(GARDEN_STATE_CHANNEL, listener);
   },
 
   /**
@@ -50,7 +71,8 @@ const gardenAPI = {
   onGardenShown: (cb: () => void): (() => void) => {
     const listener = (): void => cb();
     electronAPI.ipcRenderer.on("garden-shown", listener);
-    return () => electronAPI.ipcRenderer.removeListener("garden-shown", listener);
+    return () =>
+      electronAPI.ipcRenderer.removeListener("garden-shown", listener);
   },
 };
 

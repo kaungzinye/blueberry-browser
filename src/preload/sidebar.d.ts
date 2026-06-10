@@ -43,6 +43,23 @@ interface SidebarAPI {
 
   // Command bar height (expand/collapse)
   setCommandBarHeight: (height: number) => Promise<boolean>;
+
+  // Garden Approval gate, visible in the tab-view Command Bar (ADR-0003)
+  onGardenState: (cb: (snapshot: GardenSnapshot) => void) => () => void;
+  resolveApproval: (approvalId: string, approved: boolean) => Promise<boolean>;
+}
+
+interface PendingApproval {
+  id: string;
+  agentId: string;
+  commandId?: string;
+  caption: string;
+  reason: string;
+}
+
+interface GardenSnapshot {
+  state: unknown;
+  pendingApproval: PendingApproval | null;
 }
 
 declare global {
@@ -51,4 +68,3 @@ declare global {
     sidebarAPI: SidebarAPI;
   }
 }
-

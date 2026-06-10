@@ -67,7 +67,9 @@ const ChatHistory: React.FC<{
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
       {messages.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-xs text-white/25">No messages yet — type a command below.</p>
+          <p className="text-xs text-white/25">
+            No messages yet — type a command below.
+          </p>
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -92,7 +94,7 @@ const ChatHistory: React.FC<{
                   </ReactMarkdown>
                 </div>
               </div>
-            )
+            ),
           )}
           {isLoading && (
             <div className="flex items-center gap-1.5">
@@ -108,12 +110,71 @@ const ChatHistory: React.FC<{
   );
 };
 
+interface PendingApproval {
+  id: string;
+  caption: string;
+  reason: string;
+}
+
+/**
+ * Approval gate banner (ADR-0003) for the tab-view Command Bar. The agent is
+ * blocked on a high-consequence Browser action on the live tab the user is
+ * watching; Approve/Deny resolves the gate in main.
+ */
+const ApprovalBanner: React.FC<{
+  approval: PendingApproval;
+  onApprove: () => void;
+  onDeny: () => void;
+}> = ({ approval, onApprove, onDeny }) => (
+  <div className="shrink-0 border-b border-amber-400/30 bg-amber-500/[0.08] px-4 py-2.5">
+    <p className="font-mono text-[10px] uppercase tracking-wide text-amber-300/90">
+      Approval needed
+    </p>
+    <p className="mt-0.5 truncate text-sm text-white/90">{approval.caption}</p>
+    <p className="truncate text-xs text-white/40">{approval.reason}</p>
+    <div className="mt-2 flex justify-end gap-2">
+      <button
+        type="button"
+        onClick={onDeny}
+        className="rounded-lg border border-white/15 px-3 py-1 text-xs text-white/70 hover:bg-white/[0.06]"
+      >
+        Deny
+      </button>
+      <button
+        type="button"
+        onClick={onApprove}
+        className="rounded-lg bg-[#5b8cff] px-3 py-1 text-xs font-medium text-white hover:bg-[#4f7ef0]"
+      >
+        Approve
+      </button>
+    </div>
+  </div>
+);
+
 export const CommandBar: React.FC = () => {
   const { messages, isLoading, sendMessage } = useChat();
   const [input, setInput] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const [pendingApproval, setPendingApproval] =
+    useState<PendingApproval | null>(null);
 
-  const latestReply = [...messages].reverse().find((m) => m.role === "assistant")?.content ?? null;
+  // Mirror main's Approval gate so the user can decide while watching the tab.
+  useEffect(() => {
+    const unsub = window.sidebarAPI?.onGardenState?.((snapshot) => {
+      const snap = snapshot as { pendingApproval: PendingApproval | null };
+      setPendingApproval(snap?.pendingApproval ?? null);
+    });
+    return () => unsub?.();
+  }, []);
+
+  const resolveApproval = (approved: boolean): void => {
+    if (!pendingApproval) return;
+    void window.sidebarAPI?.resolveApproval?.(pendingApproval.id, approved);
+  };
+
+  const latestReply =
+    [...messages].reverse().find((m) => m.role === "assistant")?.content ??
+    null;
 
   const toggleExpand = (): void => {
     const next = !expanded;
@@ -133,10 +194,17 @@ export const CommandBar: React.FC = () => {
       className="app-region-no-drag flex h-full flex-col overflow-hidden border-t border-white/[0.08]"
       style={{ background: "#0e1119" }}
     >
-      {/* Expanded chat history */}
-      {expanded && (
-        <ChatHistory messages={messages} isLoading={isLoading} />
+      {/* Blocking Approval gate for the live tab the agent is driving */}
+      {pendingApproval && (
+        <ApprovalBanner
+          approval={pendingApproval}
+          onApprove={() => resolveApproval(true)}
+          onDeny={() => resolveApproval(false)}
+        />
       )}
+
+      {/* Expanded chat history */}
+      {expanded && <ChatHistory messages={messages} isLoading={isLoading} />}
 
       {/* Collapsed preview — latest agent reply */}
       {!expanded && latestReply && (
@@ -153,7 +221,11 @@ export const CommandBar: React.FC = () => {
           className="flex shrink-0 items-center gap-1 rounded-xl border border-white/10 bg-white/[0.04] px-2 py-1.5 font-mono text-[10px] uppercase tracking-wide text-white/30 transition-colors hover:bg-white/[0.07] hover:text-white/60"
           aria-label={expanded ? "Collapse chat" : "Expand chat"}
         >
-          {expanded ? <ChevronDown className="size-3" /> : <ChevronUp className="size-3" />}
+          {expanded ? (
+            <ChevronDown className="size-3" />
+          ) : (
+            <ChevronUp className="size-3" />
+          )}
         </button>
         <CommandInput
           value={input}

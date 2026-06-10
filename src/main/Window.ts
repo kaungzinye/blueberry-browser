@@ -4,6 +4,7 @@ import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
 import { TabSidebar } from "./TabSidebar";
 import { GardenView } from "./GardenView";
+import { GardenController } from "./garden/GardenController";
 import { LEFT_RAIL_WIDTH, TOPBAR_HEIGHT } from "./layout";
 
 export class Window {
@@ -19,6 +20,7 @@ export class Window {
   private _sideBar: SideBar;
   private _tabSidebar: TabSidebar;
   private _garden: GardenView;
+  private _gardenController: GardenController;
 
   constructor() {
     // Create the browser window.
@@ -74,6 +76,10 @@ export class Window {
     });
 
     this.setupEventListeners();
+
+    // Main owns canonical Garden state + agent sessions (ADR-0003). Created
+    // last so the garden/sidebar views it broadcasts to already exist.
+    this._gardenController = new GardenController(this);
   }
 
   private setupEventListeners(): void {
@@ -117,7 +123,9 @@ export class Window {
 
     // Fill the area right of the tab rail, below the top bar, above the command bar.
     const bounds = this._baseWindow.getBounds();
-    const cmdBarH = this._sideBar?.getIsVisible() ? this._sideBar.getCurrentHeight() : 0;
+    const cmdBarH = this._sideBar?.getIsVisible()
+      ? this._sideBar.getCurrentHeight()
+      : 0;
     const railW = this.railWidth;
     tab.view.setBounds({
       x: railW,
@@ -329,7 +337,9 @@ export class Window {
 
   private updateTabBounds(): void {
     const bounds = this._baseWindow.getBounds();
-    const cmdBarH = this._sideBar.getIsVisible() ? this._sideBar.getCurrentHeight() : 0;
+    const cmdBarH = this._sideBar.getIsVisible()
+      ? this._sideBar.getCurrentHeight()
+      : 0;
     const railW = this.railWidth;
 
     this.tabsMap.forEach((tab) => {
@@ -370,6 +380,10 @@ export class Window {
 
   get garden(): GardenView {
     return this._garden;
+  }
+
+  get gardenController(): GardenController {
+    return this._gardenController;
   }
 
   /** What occupies the content slot: "garden" or a tabId. */

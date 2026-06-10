@@ -1,12 +1,13 @@
-import { streamText, tool, stepCountIs } from "ai";
+import { streamText, tool, stepCountIs, type ModelMessage } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import { homedir } from "os";
 import { join } from "path";
 import { mkdir, writeFile } from "fs/promises";
-import type { WebContents } from "electron";
 import type { Window } from "./Window";
+import type { GardenStore } from "./garden/GardenStore";
+import type { GardenStatePatch } from "../renderer/garden/src/domain/gardenPatches";
 import {
   resolve,
   requiresApproval,
@@ -16,94 +17,8 @@ import {
   executeAction,
   playOverlay,
   type ActionKind,
+  type Recorder,
 } from "./browser-use";
-
-// ── IPC channel ───────────────────────────────────────────────────────────────
-
-export const AGENT_PATCH_CHANNEL = "garden-agent-patch";
-
-// ── Patch types (mirrored in garden.d.ts) ────────────────────────────────────
-
-export type AgentState =
-  | "idle"
-  | "planning"
-  | "moving"
-  | "acting"
-  | "blocked"
-  | "complete";
-export type BerryKind =
-  | "tab"
-  | "sheet"
-  | "xlsx"
-  | "lead"
-  | "report"
-  | "work-run";
-export type BerryStatus =
-  | "idle"
-  | "reading"
-  | "extracting"
-  | "writing"
-  | "complete";
-export type TelemetryKind =
-  | "intent"
-  | "action"
-  | "observation"
-  | "decision"
-  | "tool_call"
-  | "write"
-  | "complete";
-
-export interface PatchBerry {
-  id: string;
-  kind: BerryKind;
-  title: string;
-  subtitle: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  status: BerryStatus;
-  url?: string;
-  workRunId?: string;
-  onMap: boolean;
-  filePath?: string;
-  browserTabId?: string;
-  screenshotDataUrl?: string;
-}
-
-export interface PatchTelemetryEvent {
-  id: string;
-  workRunId: string;
-  agentId: string;
-  berryId?: string;
-  fromBerryId?: string;
-  toBerryId?: string;
-  kind: TelemetryKind;
-  label: string;
-  icon: string;
-}
-
-export type GardenStatePatch =
-  | { type: "berry-created"; berry: PatchBerry }
-  | { type: "berry-status"; berryId: string; status: BerryStatus }
-  | { type: "berry-screenshot"; berryId: string; screenshotDataUrl: string }
-  | { type: "telemetry"; event: PatchTelemetryEvent }
-  | {
-      type: "agent-state";
-      agentId: string;
-      state: AgentState;
-      currentLabel: string;
-    }
-  | {
-      type: "command-status";
-      commandId: string;
-      status: "complete" | "planning" | "running" | "blocked";
-    }
-  | {
-      type: "work-run-status";
-      workRunId: string;
-      status: "planning" | "running" | "complete" | "blocked";
-    };
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -121,7 +36,7 @@ You are a Main Agent in Blueberry Browser — a spatial browser-workspace where 
 1. Call annotate(intent, "…") to state your overall goal first.
 2. Use search_web to discover URLs, then navigate_tab to read them.
 3. To operate a page (log in, fill a form, step through a flow), use browser_action. Describe targets in plain language ("the search box", "the Sign in button").
-4. browser_action gates consequential steps (submit/purchase/send/login/upload): if it returns requiresApproval, STOP and ask the user — do not retry to force it through.
+4. browser_action HARD-STOPS for user approval before consequential steps (submit/purchase/send/login/upload). It blocks until the user decides. If it returns denied, do NOT retry — pick a different approach or stop and explain.
 5. If browser_action returns a miss, inspect the returned 'available' elements and re-phrase your target, or navigate/scroll to bring it into view.
 6. Call annotate(decision, "…") at meaningful branch points.
 7. Write all outputs with write_artifact before finishing.
@@ -141,26 +56,85 @@ export interface RunCommandOpts {
   gardenName?: string;
 }
 
-// ── AgentRunner ───────────────────────────────────────────────────────────────
+type Turn = ModelMessage;
+
+// ── AgentRunner — a long-lived Main Agent session (ADR-0003) ────────────────────
+//
+// Replaces the one-shot fire-and-forget runner: it owns conversation history and
+// an inbound channel (follow-up turns + approval decisions). Patches apply
+// directly to the main-owned GardenStore — there is no patch-to-renderer hop.
+// The browser_action risk gate is a BLOCKING await on an approval promise the
+// inbound channel resolves, not a "stop" string handed back to the model.
 
 export class AgentRunner {
-  private readonly gardenWC: WebContents;
   private readonly window: Window;
+  private readonly store: GardenStore;
   private telemSeq = 0;
 
-  constructor(window: Window) {
+  // ── Session identity (set on run) ──
+  private agentId = "";
+  private commandId = "";
+  private workRunId = "";
+  private gardenName = "Default";
+  private artifactsDir = "";
+
+  // ── Conversation + inbound channel ──
+  private messages: Turn[] = [];
+  private running = false;
+  private readonly pendingTurns: string[] = [];
+  /** approvalId → resolver, set while an Approval gate is open. */
+  private readonly approvals = new Map<string, (approved: boolean) => void>();
+
+  // ── Cross-turn run state ──
+  private recorder: Recorder = createRecorder();
+  private browserActionCount = 0;
+  private lastSourceBerryId: string | undefined;
+  private berryIdx = 0;
+  private apprSeq = 0;
+
+  constructor(window: Window, store: GardenStore) {
     this.window = window;
-    this.gardenWC = window.garden.view.webContents;
+    this.store = store;
   }
 
-  private emit(patch: GardenStatePatch): void {
-    if (!this.gardenWC.isDestroyed()) {
-      this.gardenWC.send(AGENT_PATCH_CHANNEL, patch);
+  // ── Inbound channel ────────────────────────────────────────────────────────
+
+  /** Deliver a follow-up turn. Queues if a stream is mid-flight; else streams now. */
+  submitTurn(text: string): void {
+    if (this.running) {
+      this.pendingTurns.push(text);
+      return;
     }
+    this.messages.push({ role: "user", content: text });
+    void this.drive();
+  }
+
+  /** Resolve an open Approval gate (Approve/Deny from the Command Bar). */
+  resolveApproval(approvalId: string, approved: boolean): void {
+    const resolver = this.approvals.get(approvalId);
+    if (resolver) {
+      this.approvals.delete(approvalId);
+      resolver(approved);
+    }
+  }
+
+  get isRunning(): boolean {
+    return this.running;
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  private emit(patch: GardenStatePatch): void {
+    this.store.applyAgentPatch(patch);
   }
 
   private tid(): string {
     return `t-${Date.now()}-${++this.telemSeq}`;
+  }
+
+  private nextPos(): { x: number; y: number } {
+    const i = this.berryIdx++;
+    return { x: 80 + (i % 3) * 310, y: 120 + Math.floor(i / 3) * 230 };
   }
 
   private getModel() {
@@ -177,19 +151,18 @@ export class AgentRunner {
       : Boolean(process.env.ANTHROPIC_API_KEY);
   }
 
+  // ── Run ──────────────────────────────────────────────────────────────────
+
   async run(opts: RunCommandOpts): Promise<void> {
-    const {
-      commandText,
-      commandId,
-      agentId,
-      workRunId,
-      gardenName = "Default",
-    } = opts;
+    this.agentId = opts.agentId;
+    this.commandId = opts.commandId;
+    this.workRunId = opts.workRunId;
+    this.gardenName = opts.gardenName ?? "Default";
 
     if (!this.hasApiKey()) {
       this.emit({
         type: "agent-state",
-        agentId,
+        agentId: this.agentId,
         state: "blocked",
         currentLabel:
           "No API key — add ANTHROPIC_API_KEY or OPENAI_API_KEY to .env",
@@ -197,65 +170,153 @@ export class AgentRunner {
       return;
     }
 
-    const artifactsDir = join(
+    this.artifactsDir = join(
       homedir(),
       "Blueberry",
       "Gardens",
-      gardenName,
+      this.gardenName,
       "artifacts",
     );
-    await mkdir(artifactsDir, { recursive: true });
+    await mkdir(this.artifactsDir, { recursive: true });
+
+    this.messages = [{ role: "user", content: opts.commandText }];
+    this.recorder = createRecorder();
+    this.browserActionCount = 0;
+    this.berryIdx = 0;
+    this.lastSourceBerryId = undefined;
 
     this.emit({
       type: "agent-state",
-      agentId,
+      agentId: this.agentId,
       state: "planning",
       currentLabel: "Planning work",
     });
-    this.emit({ type: "work-run-status", workRunId, status: "running" });
-    this.emit({ type: "command-status", commandId, status: "running" });
+    this.emit({
+      type: "work-run-status",
+      workRunId: this.workRunId,
+      status: "running",
+    });
+    this.emit({
+      type: "command-status",
+      commandId: this.commandId,
+      status: "running",
+    });
 
-    // Berry layout: 3-column grid, resets per run
-    let berryIdx = 0;
-    const nextPos = () => {
-      const i = berryIdx++;
-      return { x: 80 + (i % 3) * 310, y: 120 + Math.floor(i / 3) * 230 };
-    };
+    await this.drive();
+  }
 
-    const self = this;
+  // ── Drive: stream until the model stops, then drain queued follow-up turns ──
 
-    // Accumulates browser actions across the run for the optional Playwright export.
-    const recorder = createRecorder();
-    let browserActionCount = 0;
+  private async drive(): Promise<void> {
+    this.running = true;
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const tools = this.buildTools();
+        const result = streamText({
+          model: this.getModel(),
+          system: SYSTEM_PROMPT,
+          messages: this.messages,
+          tools,
+          stopWhen: stepCountIs(30),
+        });
 
-    // The most recent berry a tool read FROM (a tab/search result). Consumed by
-    // write_artifact to draw a source→destination data-flow line in the garden.
-    let lastSourceBerryId: string | undefined;
+        for await (const part of result.fullStream) {
+          if (part.type === "error") {
+            throw new Error(
+              String((part as { type: "error"; error: unknown }).error),
+            );
+          }
+        }
 
-    // Emit a tool_call telemetry signal at the moment a tool is invoked. This is
-    // the defined "tool invoked" visual; without it the tool_call signature/clip
-    // would be dead code. berryId is the berry the call is about, if known yet.
-    const emitToolCall = (label: string, berryId?: string): void => {
-      self.emit({
-        type: "telemetry",
-        event: {
-          id: self.tid(),
-          workRunId,
-          agentId,
-          berryId,
-          kind: "tool_call",
-          label,
-          icon: "tool",
-        },
+        const text = await result.text;
+        if (text) this.messages.push({ role: "assistant", content: text });
+
+        // Fold in any follow-up turn that arrived mid-stream, then loop.
+        const queued = this.pendingTurns.shift();
+        if (queued) {
+          this.messages.push({ role: "user", content: queued });
+          continue;
+        }
+        break;
+      }
+
+      this.exportPlaywrightIfRecorded();
+
+      this.emit({
+        type: "agent-state",
+        agentId: this.agentId,
+        state: "complete",
+        currentLabel: "Work complete",
       });
-    };
+      this.emit({
+        type: "command-status",
+        commandId: this.commandId,
+        status: "complete",
+      });
+      this.emit({
+        type: "work-run-status",
+        workRunId: this.workRunId,
+        status: "complete",
+      });
+    } catch (error) {
+      console.error("[AgentRunner] Stream error:", error);
+      const msg =
+        error instanceof Error
+          ? error.message.slice(0, 80)
+          : "Unexpected error";
+      this.emit({
+        type: "agent-state",
+        agentId: this.agentId,
+        state: "blocked",
+        currentLabel: msg,
+      });
+    } finally {
+      this.running = false;
+    }
+  }
 
-    // ── Tools (v5: field is `inputSchema`, not `parameters`) ──────────────────
+  // ── Approval gate: block until the inbound channel resolves ─────────────────
+
+  private requestApproval(caption: string, reason: string): Promise<boolean> {
+    const id = `appr-${Date.now()}-${++this.apprSeq}`;
+    this.store.setPendingApproval({
+      id,
+      agentId: this.agentId,
+      commandId: this.commandId,
+      caption,
+      reason,
+    });
+    return new Promise<boolean>((resolveApproval) => {
+      this.approvals.set(id, resolveApproval);
+    }).finally(() => {
+      this.store.clearPendingApproval();
+    });
+  }
+
+  private emitToolCall(label: string, berryId?: string): void {
+    this.emit({
+      type: "telemetry",
+      event: {
+        id: this.tid(),
+        workRunId: this.workRunId,
+        agentId: this.agentId,
+        berryId,
+        kind: "tool_call",
+        label,
+        icon: "tool",
+      },
+    });
+  }
+
+  // ── Tools ──────────────────────────────────────────────────────────────────
+
+  private buildTools() {
+    const self = this;
 
     const navigate_tab = tool({
       description:
         "Open a URL in a real Chromium browser tab, wait for page load, read page text and take a screenshot. Creates a Tab Berry on the garden canvas.",
-
       inputSchema: z.object({
         url: z.string().describe("Full URL including https://"),
         label: z
@@ -267,8 +328,8 @@ export class AgentRunner {
       execute: async ({ url, label }: { url: string; label: string }) => {
         const tab = self.window.createTab(url);
         const berryId = `berry-tab-${tab.id}`;
-        const pos = nextPos();
-        emitToolCall(`Opening ${label}`, berryId);
+        const pos = self.nextPos();
+        self.emitToolCall(`Opening ${label}`, berryId);
 
         self.emit({
           type: "berry-created",
@@ -283,14 +344,14 @@ export class AgentRunner {
             width: 260,
             height: 170,
             status: "reading",
-            workRunId,
+            workRunId: self.workRunId,
             onMap: true,
             browserTabId: tab.id,
           },
         });
         self.emit({
           type: "agent-state",
-          agentId,
+          agentId: self.agentId,
           state: "acting",
           currentLabel: `Reading ${label}`,
         });
@@ -298,8 +359,8 @@ export class AgentRunner {
           type: "telemetry",
           event: {
             id: self.tid(),
-            workRunId,
-            agentId,
+            workRunId: self.workRunId,
+            agentId: self.agentId,
             berryId,
             kind: "action",
             label: `Reading ${label}`,
@@ -307,10 +368,9 @@ export class AgentRunner {
           },
         });
 
-        // Wait for page load (8 s max)
-        await new Promise<void>((resolve) => {
-          tab.webContents.once("did-finish-load", resolve);
-          setTimeout(resolve, 8_000);
+        await new Promise<void>((done) => {
+          tab.webContents.once("did-finish-load", () => done());
+          setTimeout(done, 8_000);
         });
 
         self.emit({ type: "berry-status", berryId, status: "extracting" });
@@ -324,8 +384,6 @@ export class AgentRunner {
 
         try {
           const img = await tab.screenshot();
-          // Skip empty captures (hidden/unpainted views) — they render as a
-          // broken thumbnail in the garden.
           if (!img.isEmpty()) {
             self.emit({
               type: "berry-screenshot",
@@ -342,16 +400,15 @@ export class AgentRunner {
           type: "telemetry",
           event: {
             id: self.tid(),
-            workRunId,
-            agentId,
+            workRunId: self.workRunId,
+            agentId: self.agentId,
             berryId,
             kind: "observation",
             label: `Read ${label}`,
             icon: "eye",
           },
         });
-        // This tab is now the source a later write_artifact draws its line from.
-        lastSourceBerryId = berryId;
+        self.lastSourceBerryId = berryId;
 
         return { tabId: tab.id, berryId, url, title: tab.title || label, text };
       },
@@ -360,7 +417,6 @@ export class AgentRunner {
     const search_web = tool({
       description:
         "Search DuckDuckGo for pages matching a query. Returns up to 8 results with {url, title, snippet}. Use navigate_tab on results you want to read.",
-
       inputSchema: z.object({
         query: z.string().describe("Search query"),
       }) as any,
@@ -368,7 +424,7 @@ export class AgentRunner {
         const short = query.slice(0, 50);
         self.emit({
           type: "agent-state",
-          agentId,
+          agentId: self.agentId,
           state: "acting",
           currentLabel: `Searching: ${short}`,
         });
@@ -376,8 +432,8 @@ export class AgentRunner {
           type: "telemetry",
           event: {
             id: self.tid(),
-            workRunId,
-            agentId,
+            workRunId: self.workRunId,
+            agentId: self.agentId,
             kind: "action",
             label: `Searching: ${short}`,
             icon: "search",
@@ -417,8 +473,8 @@ export class AgentRunner {
             type: "telemetry",
             event: {
               id: self.tid(),
-              workRunId,
-              agentId,
+              workRunId: self.workRunId,
+              agentId: self.agentId,
               kind: "observation",
               label: `Found ${results.length} results`,
               icon: "eye",
@@ -435,7 +491,6 @@ export class AgentRunner {
     const write_artifact = tool({
       description:
         "Write output content to a file in the Garden artifacts folder and create an Artifact Berry on the canvas.",
-
       inputSchema: z.object({
         filename: z
           .string()
@@ -462,12 +517,12 @@ export class AgentRunner {
         title: string;
         subtitle: string;
       }) => {
-        const filePath = join(artifactsDir, filename);
+        const filePath = join(self.artifactsDir, filename);
         await writeFile(filePath, content, "utf-8");
 
         const berryId = `berry-artifact-${filename.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`;
-        const pos = nextPos();
-        emitToolCall(`Writing ${title}`, berryId);
+        const pos = self.nextPos();
+        self.emitToolCall(`Writing ${title}`, berryId);
 
         self.emit({
           type: "berry-created",
@@ -481,14 +536,14 @@ export class AgentRunner {
             width: 280,
             height: 150,
             status: "writing",
-            workRunId,
+            workRunId: self.workRunId,
             onMap: true,
             filePath,
           },
         });
         self.emit({
           type: "agent-state",
-          agentId,
+          agentId: self.agentId,
           state: "acting",
           currentLabel: `Writing ${title}`,
         });
@@ -496,11 +551,10 @@ export class AgentRunner {
           type: "telemetry",
           event: {
             id: self.tid(),
-            workRunId,
-            agentId,
+            workRunId: self.workRunId,
+            agentId: self.agentId,
             berryId,
-            // Draw the data-flow line from the last source read to this artifact.
-            fromBerryId: lastSourceBerryId,
+            fromBerryId: self.lastSourceBerryId,
             toBerryId: berryId,
             kind: "write",
             label: `Writing ${title}`,
@@ -508,7 +562,6 @@ export class AgentRunner {
           },
         });
 
-        // Small visual pause so the writing state registers
         await new Promise((r) => setTimeout(r, 400));
 
         self.emit({ type: "berry-status", berryId, status: "complete" });
@@ -516,8 +569,8 @@ export class AgentRunner {
           type: "telemetry",
           event: {
             id: self.tid(),
-            workRunId,
-            agentId,
+            workRunId: self.workRunId,
+            agentId: self.agentId,
             berryId,
             kind: "complete",
             label: `Wrote ${title}`,
@@ -532,7 +585,6 @@ export class AgentRunner {
     const annotate = tool({
       description:
         "Record your intent, a key decision, an observation, or completion as a telemetry event visible in the Garden. No side effects — pure signal.",
-
       inputSchema: z.object({
         kind: z
           .enum(["intent", "decision", "observation", "complete"])
@@ -555,7 +607,7 @@ export class AgentRunner {
         label: string;
         berryId?: string;
       }) => {
-        const agentState: AgentState =
+        const agentState =
           kind === "complete"
             ? "complete"
             : kind === "intent"
@@ -564,7 +616,7 @@ export class AgentRunner {
 
         self.emit({
           type: "agent-state",
-          agentId,
+          agentId: self.agentId,
           state: agentState,
           currentLabel: label,
         });
@@ -572,8 +624,8 @@ export class AgentRunner {
           type: "telemetry",
           event: {
             id: self.tid(),
-            workRunId,
-            agentId,
+            workRunId: self.workRunId,
+            agentId: self.agentId,
             berryId,
             kind,
             label,
@@ -597,8 +649,8 @@ export class AgentRunner {
         "Operate the live tab the user is watching: click, type, scroll, select, or press a key. " +
         "Target elements in natural language (e.g. 'the Sign in button'); the action is narrated " +
         "on the page with an animated cursor. High-consequence actions (submit, purchase, send, " +
-        "login, upload) hard-stop for user approval. Use after navigate_tab has opened a page.",
-
+        "login, upload) hard-stop for user approval and BLOCK until the user decides. Use after " +
+        "navigate_tab has opened a page.",
       inputSchema: z.object({
         action: z
           .enum(["click", "type", "scroll", "select", "press"])
@@ -647,9 +699,8 @@ export class AgentRunner {
         }
         const berryId = `berry-tab-${tab.id}`;
         const caption = label ?? `${capitalize(action)} ${target}`;
-        emitToolCall(caption, berryId);
+        self.emitToolCall(caption, berryId);
 
-        // ── Observe → digest → resolve ──────────────────────────────────────
         const digest = await extractDigest(tab);
         const hit = resolve(target, digest);
         if ("miss" in hit) {
@@ -657,8 +708,8 @@ export class AgentRunner {
             type: "telemetry",
             event: {
               id: self.tid(),
-              workRunId,
-              agentId,
+              workRunId: self.workRunId,
+              agentId: self.agentId,
               berryId,
               kind: "observation",
               label: `Couldn't find: ${target.slice(0, 40)}`,
@@ -669,7 +720,6 @@ export class AgentRunner {
             ok: false,
             miss: true,
             error: `No element matched "${target}".`,
-            // Hand back what's on the page so the agent can re-phrase or pick another.
             available: digest
               .slice(0, 20)
               .map((d) => ({ text: d.text, role: d.role })),
@@ -678,7 +728,7 @@ export class AgentRunner {
 
         const el = digest.find((d) => d.id === hit.id)!;
 
-        // ── Risk gate: hard-stop before consequential actions ───────────────
+        // ── Risk gate: BLOCK until the user approves or denies ──────────────
         if (
           requiresApproval({
             kind: action,
@@ -688,7 +738,7 @@ export class AgentRunner {
         ) {
           self.emit({
             type: "agent-state",
-            agentId,
+            agentId: self.agentId,
             state: "blocked",
             currentLabel: `Approval needed: ${caption}`.slice(0, 70),
           });
@@ -696,24 +746,43 @@ export class AgentRunner {
             type: "telemetry",
             event: {
               id: self.tid(),
-              workRunId,
-              agentId,
+              workRunId: self.workRunId,
+              agentId: self.agentId,
               berryId,
               kind: "decision",
               label: `Awaiting approval: ${caption}`.slice(0, 60),
               icon: "branch",
             },
           });
-          return {
-            ok: false,
-            requiresApproval: true,
-            reason:
-              `"${el.text}" is a gated action (submit/purchase/send/login/upload). ` +
-              "Stop and ask the user to approve before proceeding.",
-          };
+
+          const approved = await self.requestApproval(
+            caption,
+            `"${el.text}" is a gated action (submit/purchase/send/login/upload).`,
+          );
+
+          if (!approved) {
+            self.emit({
+              type: "telemetry",
+              event: {
+                id: self.tid(),
+                workRunId: self.workRunId,
+                agentId: self.agentId,
+                berryId,
+                kind: "decision",
+                label: `Denied: ${caption}`.slice(0, 60),
+                icon: "branch",
+              },
+            });
+            return {
+              ok: false,
+              denied: true,
+              reason:
+                "The user denied this gated action. Do not retry it — choose a different approach or stop and explain.",
+            };
+          }
+          // Approved → fall through and perform the action.
         }
 
-        // ── Narrate on the page (overlay), paced ────────────────────────────
         let viewportHeight = 800;
         try {
           viewportHeight =
@@ -724,7 +793,7 @@ export class AgentRunner {
 
         self.emit({
           type: "agent-state",
-          agentId,
+          agentId: self.agentId,
           state: "acting",
           currentLabel: caption.slice(0, 70),
         });
@@ -732,8 +801,8 @@ export class AgentRunner {
           type: "telemetry",
           event: {
             id: self.tid(),
-            workRunId,
-            agentId,
+            workRunId: self.workRunId,
+            agentId: self.agentId,
             berryId,
             kind: "action",
             label: caption.slice(0, 60),
@@ -748,19 +817,16 @@ export class AgentRunner {
         );
         await playOverlay(tab, cmds);
 
-        // ── Execute on the live tab ─────────────────────────────────────────
         const result = await executeAction(tab, action, hit.id, value);
 
-        // ── Record for the optional Playwright export ───────────────────────
-        recorder.record({
+        self.recorder.record({
           kind: action,
           targetText: el.text,
           targetRole: el.role,
           value,
         });
-        browserActionCount++;
+        self.browserActionCount++;
 
-        // Refresh the Garden thumbnail so the action is visible spatially too.
         try {
           const img = await tab.screenshot();
           if (!img.isEmpty()) {
@@ -778,8 +844,8 @@ export class AgentRunner {
           type: "telemetry",
           event: {
             id: self.tid(),
-            workRunId,
-            agentId,
+            workRunId: self.workRunId,
+            agentId: self.agentId,
             berryId,
             kind: result.ok ? "observation" : "decision",
             label: result.ok
@@ -798,81 +864,42 @@ export class AgentRunner {
       },
     });
 
-    // ── Stream ────────────────────────────────────────────────────────────────
+    return {
+      navigate_tab,
+      search_web,
+      write_artifact,
+      annotate,
+      browser_action,
+    };
+  }
 
+  // ── Optional bonus: export the browser run as a replayable Playwright script ──
+
+  private exportPlaywrightIfRecorded(): void {
+    if (this.browserActionCount === 0) return;
     try {
-      const result = streamText({
-        model: this.getModel(),
-        system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: commandText }],
-        tools: {
-          navigate_tab,
-          search_web,
-          write_artifact,
-          annotate,
-          browser_action,
+      const scriptPath = join(this.artifactsDir, "recorded-run.spec.ts");
+      void writeFile(scriptPath, this.recorder.toPlaywright(), "utf-8");
+      const berryId = "berry-artifact-recorded-run-spec-ts";
+      this.emit({
+        type: "berry-created",
+        berry: {
+          id: berryId,
+          kind: "report",
+          title: "recorded-run.spec.ts",
+          subtitle: `${this.browserActionCount} browser actions · Playwright`,
+          x: 80,
+          y: 580,
+          width: 280,
+          height: 150,
+          status: "complete",
+          workRunId: this.workRunId,
+          onMap: true,
+          filePath: scriptPath,
         },
-        stopWhen: stepCountIs(30),
       });
-
-      // Iterate fullStream to drive execution.
-      // All telemetry + patches emit from inside tool execute() calls.
-      for await (const part of result.fullStream) {
-        if (part.type === "error") {
-          throw new Error(
-            String((part as { type: "error"; error: unknown }).error),
-          );
-        }
-      }
-
-      // Optional bonus: export the browser run as a replayable Playwright script.
-      if (browserActionCount > 0) {
-        try {
-          const scriptPath = join(artifactsDir, "recorded-run.spec.ts");
-          await writeFile(scriptPath, recorder.toPlaywright(), "utf-8");
-          const berryId = "berry-artifact-recorded-run-spec-ts";
-          this.emit({
-            type: "berry-created",
-            berry: {
-              id: berryId,
-              kind: "report",
-              title: "recorded-run.spec.ts",
-              subtitle: `${browserActionCount} browser actions · Playwright`,
-              x: 80,
-              y: 580,
-              width: 280,
-              height: 150,
-              status: "complete",
-              workRunId,
-              onMap: true,
-              filePath: scriptPath,
-            },
-          });
-        } catch {
-          /* non-fatal: codegen is a bonus */
-        }
-      }
-
-      this.emit({
-        type: "agent-state",
-        agentId,
-        state: "complete",
-        currentLabel: "Work complete",
-      });
-      this.emit({ type: "command-status", commandId, status: "complete" });
-      this.emit({ type: "work-run-status", workRunId, status: "complete" });
-    } catch (error) {
-      console.error("[AgentRunner] Stream error:", error);
-      const msg =
-        error instanceof Error
-          ? error.message.slice(0, 80)
-          : "Unexpected error";
-      this.emit({
-        type: "agent-state",
-        agentId,
-        state: "blocked",
-        currentLabel: msg,
-      });
+    } catch {
+      /* non-fatal: codegen is a bonus */
     }
   }
 }

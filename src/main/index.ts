@@ -19,6 +19,8 @@ app.whenReady().then(() => {
   electronApp.setAppUserModelId("com.electron");
 
   mainWindow = createWindow();
+  // Rehydrate persisted Garden state (mid-flight runs become `interrupted`).
+  void mainWindow.gardenController.load();
 
   app.on("activate", () => {
     // On macOS it's common to re-create a window in the app when the

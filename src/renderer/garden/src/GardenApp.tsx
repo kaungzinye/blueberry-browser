@@ -24,39 +24,40 @@ import {
   FadedGardenEcho,
   GARDEN_RIGHT_HUD_WIDTH,
   GardenHud,
-  replyForCommand,
   ViewportTransform,
 } from "./components/GardenHud";
 import { IntelLedgerOverlay } from "./components/IntelLedger";
 import { ReaderPane } from "./components/ReaderPane";
 import {
-  advanceWorkRun,
-  approveWorkRun,
-  AUTO_ADVANCE_MS,
   Berry,
-  completeWorkRun,
   createInitialGardenState,
   GardenState,
   getLedgerEntries,
   getReaderContent,
   getVisibleBerries,
-  showBerryOnGarden,
-  submitCommand,
-  syncTabBerries,
   TelemetryEvent,
 } from "./domain/gardenDomain";
-import { applyPatch } from "./domain/gardenPatches";
 import {
   cycleMainAgentId,
   getMainAgentRoster,
   loadMainAgentCycleScope,
-  markCommandCompleted,
-  reopenCommand,
   rosterHintForEmptyScope,
   saveMainAgentCycleScope,
-  spawnNewCommand,
   type MainAgentCycleScope,
 } from "./domain/gardenRoster";
+
+/** Main-process state broadcast envelope (mirrors src/main/garden/channels.ts). */
+interface GardenSnapshot {
+  state: GardenState;
+  pendingApproval: PendingApproval | null;
+}
+interface PendingApproval {
+  id: string;
+  agentId: string;
+  commandId?: string;
+  caption: string;
+  reason: string;
+}
 
 const DEMO_COMMAND =
   "Look at Strawberry's product and sales prospecting pages. Infer who they sell to. Then search the web for 10 companies that might buy Blueberry. Write them to Google Sheets with evidence and outreach angles. Keep an XLSX backup.";
@@ -72,11 +73,11 @@ const berryIcon = {
 
 export const GardenApp: React.FC = () => {
   const [state, setState] = useState<GardenState>(() =>
-    createInitialGardenState()
+    createInitialGardenState(),
   );
   const [commandText, setCommandText] = useState(DEMO_COMMAND);
   const [selectedMainAgentId, setSelectedMainAgentId] = useState<string | null>(
-    null
+    null,
   );
   const [mainAgentCycleScope, setMainAgentCycleScope] =
     useState<MainAgentCycleScope>(loadMainAgentCycleScope);
@@ -87,6 +88,8 @@ export const GardenApp: React.FC = () => {
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [latestAgentReply, setLatestAgentReply] = useState<string | null>(null);
   const [hasRealAgent, setHasRealAgent] = useState(false);
+  const [pendingApproval, setPendingApproval] =
+    useState<PendingApproval | null>(null);
   const [gardenEchoes, setGardenEchoes] = useState<FadedGardenEcho[]>([]);
   const [viewport, setViewport] = useState<ViewportTransform>({
     panX: 0,
@@ -98,15 +101,15 @@ export const GardenApp: React.FC = () => {
 
   const mainAgentRoster = useMemo(
     () => getMainAgentRoster(state, mainAgentCycleScope),
-    [state, mainAgentCycleScope]
+    [state, mainAgentCycleScope],
   );
 
   const selectedCommand = useMemo(
     () =>
       state.commands.find(
-        (command) => command.mainAgentId === selectedMainAgentId
+        (command) => command.mainAgentId === selectedMainAgentId,
       ),
-    [state.commands, selectedMainAgentId]
+    [state.commands, selectedMainAgentId],
   );
 
   const selectedWorkRun = useMemo(
@@ -114,7 +117,7 @@ export const GardenApp: React.FC = () => {
       selectedCommand?.workRunId
         ? state.workRuns.find((run) => run.id === selectedCommand.workRunId)
         : undefined,
-    [state.workRuns, selectedCommand?.workRunId]
+    [state.workRuns, selectedCommand?.workRunId],
   );
 
   const plannedWorkRun =
@@ -125,7 +128,7 @@ export const GardenApp: React.FC = () => {
     selectedWorkRun?.status === "complete" ? selectedWorkRun : undefined;
 
   const mainAgent = state.agents.find(
-    (agent) => agent.id === selectedMainAgentId
+    (agent) => agent.id === selectedMainAgentId,
   );
   const visibleBerries = getVisibleBerries(state);
   const ledgerEntries = getLedgerEntries(state);
@@ -134,9 +137,9 @@ export const GardenApp: React.FC = () => {
   const allArtifacts = useMemo(
     () =>
       getLedgerEntries(state).filter(
-        (entry) => entry.kind !== "tab" && !entry.browserTabId
+        (entry) => entry.kind !== "tab" && !entry.browserTabId,
       ),
-    [state]
+    [state],
   );
 
   // Bottom-right HUD "Outputs" shelf: the Artifact Berries the selected Main
@@ -149,30 +152,58 @@ export const GardenApp: React.FC = () => {
       (berry) =>
         berry.workRunId === runId &&
         berry.kind !== "tab" &&
-        !berry.browserTabId
+        !berry.browserTabId,
     );
   }, [state.berries, selectedCommand?.workRunId]);
 
   const selectedAgentIndex = mainAgentRoster.findIndex(
-    (entry) => entry.agent.id === selectedMainAgentId
+    (entry) => entry.agent.id === selectedMainAgentId,
   );
   const selectedAgentLabel =
-    selectedAgentIndex >= 0 ? `Main Agent ${selectedAgentIndex + 1}` : undefined;
+    selectedAgentIndex >= 0
+      ? `Main Agent ${selectedAgentIndex + 1}`
+      : undefined;
   const readerBerry = state.berries.find((berry) => berry.id === readerBerryId);
   const readerContent = readerBerry ? getReaderContent(readerBerry) : null;
 
+  // Seed from the main-owned store and subscribe to full-snapshot broadcasts
+  // (ADR-0003): main is the source of truth, this renderer is a view.
   useEffect(() => {
-    if (rosterSeededRef.current) return;
-    setState((current) => {
-      if (current.commands.length > 0) {
-        rosterSeededRef.current = true;
-        return current;
-      }
+    let mounted = true;
+
+    const seedRoster = async (snapshot: GardenSnapshot): Promise<void> => {
+      if (rosterSeededRef.current) return;
       rosterSeededRef.current = true;
-      const seeded = spawnNewCommand(current);
-      setSelectedMainAgentId(seeded.mainAgentId);
-      return seeded.state;
+      if (snapshot.state.commands.length === 0) {
+        const feedback = await window.gardenAPI?.dispatch({
+          type: "new-command",
+        });
+        if (feedback?.selectMainAgentId) {
+          setSelectedMainAgentId(feedback.selectMainAgentId);
+        }
+      }
+    };
+
+    window.gardenAPI
+      ?.getState()
+      .then((snapshot) => {
+        if (!mounted || !snapshot) return;
+        setState(snapshot.state as GardenState);
+        setPendingApproval(snapshot.pendingApproval);
+        void seedRoster(snapshot as GardenSnapshot);
+      })
+      .catch(() => {});
+
+    const unsub = window.gardenAPI?.onGardenState((snapshot) => {
+      const snap = snapshot as GardenSnapshot;
+      setState(snap.state);
+      setPendingApproval(snap.pendingApproval);
     });
+
+    return () => {
+      mounted = false;
+      unsub?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -187,27 +218,22 @@ export const GardenApp: React.FC = () => {
 
   // Check once on mount whether a real API key is configured.
   useEffect(() => {
-    window.gardenAPI?.hasApiKey().then(setHasRealAgent).catch(() => {});
-  }, []);
-
-  // Stream GardenStatePatch events from the agent runner and apply them live.
-  useEffect(() => {
-    const unsub = window.gardenAPI?.onAgentPatch((patch) => {
-      setState((current) => applyPatch(current, patch));
-    });
-    return () => unsub?.();
+    window.gardenAPI
+      ?.hasApiKey()
+      .then(setHasRealAgent)
+      .catch(() => {});
   }, []);
 
   // Pull real browser tabs into the garden as Tab Berries. getTabBerries is
   // expensive (screenshots every tab), so sync on mount and whenever the
-  // garden becomes visible — not on a poll. syncTabBerries preserves berry
-  // positions and skips while a Work Run is active.
+  // garden becomes visible — not on a poll. The sync-tab-berries intent is
+  // reduced in main (skips while a Work Run is active) and broadcast back.
   useEffect(() => {
     const pullTabs = (): void => {
       window.gardenAPI
         ?.getTabBerries()
         .then((snapshots) =>
-          setState((current) => syncTabBerries(current, snapshots))
+          window.gardenAPI?.dispatch({ type: "sync-tab-berries", snapshots }),
         )
         .catch(() => {});
     };
@@ -231,13 +257,16 @@ export const GardenApp: React.FC = () => {
           setRosterCycleHint(null);
         }
       }
-      if (event.key !== "Tab" || event.metaKey || event.ctrlKey || event.altKey) {
+      if (
+        event.key !== "Tab" ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      ) {
         return;
       }
       const target = event.target as HTMLElement | null;
-      if (
-        target?.closest("input, textarea, [contenteditable='true']")
-      ) {
+      if (target?.closest("input, textarea, [contenteditable='true']")) {
         return;
       }
 
@@ -248,9 +277,7 @@ export const GardenApp: React.FC = () => {
         return;
       }
       setRosterCycleHint(null);
-      setSelectedMainAgentId(
-        cycleMainAgentId(roster, selectedMainAgentId)
-      );
+      setSelectedMainAgentId(cycleMainAgentId(roster, selectedMainAgentId));
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -263,23 +290,6 @@ export const GardenApp: React.FC = () => {
     mainAgentCycleScope,
     selectedMainAgentId,
   ]);
-
-  useEffect(() => {
-    // Skip the demo auto-advance when a real agent is doing live work.
-    if (!runningWorkRun || hasRealAgent) return;
-
-    const timer = window.setInterval(() => {
-      setState((current) => {
-        const run = current.workRuns.find(
-          (candidate) => candidate.id === runningWorkRun.id
-        );
-        if (!run || run.status !== "running") return current;
-        return advanceWorkRun(current, run.id);
-      });
-    }, AUTO_ADVANCE_MS);
-
-    return () => window.clearInterval(timer);
-  }, [runningWorkRun?.id, runningWorkRun?.status, runningWorkRun?.step, hasRealAgent]);
 
   useEffect(() => {
     if (!mainAgent || mainAgent.state === "idle") return;
@@ -320,40 +330,37 @@ export const GardenApp: React.FC = () => {
     });
 
     setGardenEchoes((echoes) =>
-      fadeMessageOntoGarden([...echoes, ...superseded], echoes.length)
+      fadeMessageOntoGarden([...echoes, ...superseded], echoes.length),
     );
 
-    setState((current) => {
-      const result = submitCommand(current, text, selectedMainAgentId);
-      if (result.hint) {
-        setRosterCycleHint(result.hint);
-      } else {
-        setRosterCycleHint(null);
-      }
-      setSelectedMainAgentId(result.mainAgentId);
-      const command = result.state.commands.find(
-        (candidate) => candidate.mainAgentId === result.mainAgentId
-      );
-      if (command) {
-        const agent = result.state.agents.find(
-          (candidate) => candidate.id === command.mainAgentId
-        );
-        setLatestAgentReply(
-          replyForCommand(command.route, agent?.currentLabel)
-        );
-      }
-      return result.state;
-    });
+    // Dispatch to main (source of truth); the resulting state arrives via the
+    // snapshot broadcast. Only the selection/hint feedback is returned here.
+    void window.gardenAPI
+      ?.dispatch({
+        type: "submit-command",
+        text,
+        mainAgentId: selectedMainAgentId,
+      })
+      .then((feedback) => {
+        if (feedback?.selectMainAgentId) {
+          setSelectedMainAgentId(feedback.selectMainAgentId);
+        }
+        setRosterCycleHint(feedback?.hint ?? null);
+      })
+      .catch(() => {});
     setCommandText("");
   };
 
   const handleNewCommand = (): void => {
     setRosterCycleHint(null);
-    setState((current) => {
-      const spawned = spawnNewCommand(current);
-      setSelectedMainAgentId(spawned.mainAgentId);
-      return spawned.state;
-    });
+    void window.gardenAPI
+      ?.dispatch({ type: "new-command" })
+      .then((feedback) => {
+        if (feedback?.selectMainAgentId) {
+          setSelectedMainAgentId(feedback.selectMainAgentId);
+        }
+      })
+      .catch(() => {});
     setCommandText("");
     setLatestAgentReply(null);
   };
@@ -373,37 +380,34 @@ export const GardenApp: React.FC = () => {
   const handleSelectMainAgent = (mainAgentId: string): void => {
     setRosterCycleHint(null);
     setSelectedMainAgentId(mainAgentId);
-    const agent = state.agents.find((candidate) => candidate.id === mainAgentId);
+    const agent = state.agents.find(
+      (candidate) => candidate.id === mainAgentId,
+    );
     if (agent && agent.state !== "idle") {
       setLatestAgentReply(agent.currentLabel);
     }
   };
 
   const handleMarkCommandDone = (commandId: string): void => {
-    setState((current) => markCommandCompleted(current, commandId));
+    void window.gardenAPI?.dispatch({ type: "mark-command-done", commandId });
   };
 
   const handleReopenCommand = (commandId: string): void => {
-    setState((current) => reopenCommand(current, commandId));
+    void window.gardenAPI?.dispatch({ type: "reopen-command", commandId });
   };
 
   const handleApprovePlan = (): void => {
-    if (!plannedWorkRun || !selectedCommand || !selectedMainAgentId) return;
+    if (!plannedWorkRun) return;
+    // Main decides real-agent vs scripted-demo execution and broadcasts back.
+    void window.gardenAPI?.dispatch({
+      type: "approve-work-run",
+      workRunId: plannedWorkRun.id,
+    });
+  };
 
-    // Engine selection is explicit: a configured API key runs the real agent;
-    // otherwise we fall back to the scripted demo, surfaced by the demo badge.
-    if (hasRealAgent) {
-      // Real mode: agent runner streams patches; skip the demo state machine.
-      window.gardenAPI?.runCommand({
-        commandId: selectedCommand.id,
-        commandText: selectedCommand.text,
-        agentId: selectedMainAgentId,
-        workRunId: plannedWorkRun.id,
-      });
-    } else {
-      // Demo mode: deterministic state machine with hardcoded steps.
-      setState((current) => approveWorkRun(current, plannedWorkRun.id));
-    }
+  const handleResolveApproval = (approved: boolean): void => {
+    if (!pendingApproval) return;
+    void window.gardenAPI?.resolveApproval(pendingApproval.id, approved);
   };
 
   const handleOpenBerry = (berry: Berry): void => {
@@ -436,17 +440,23 @@ export const GardenApp: React.FC = () => {
 
   const handleAdvanceWorkRun = (): void => {
     if (!runningWorkRun) return;
-    setState((current) => advanceWorkRun(current, runningWorkRun.id));
+    void window.gardenAPI?.dispatch({
+      type: "advance-work-run",
+      workRunId: runningWorkRun.id,
+    });
   };
 
   const handleCompleteWorkRun = (): void => {
     const target = runningWorkRun ?? completedWorkRun;
     if (!target) return;
-    setState((current) => completeWorkRun(current, target.id));
+    void window.gardenAPI?.dispatch({
+      type: "complete-work-run",
+      workRunId: target.id,
+    });
   };
 
   const handleShowOnGarden = (berryId: string): void => {
-    setState((current) => showBerryOnGarden(current, berryId));
+    void window.gardenAPI?.dispatch({ type: "show-berry", berryId });
     setSelectedBerryId(berryId);
     setLedgerOpen(false);
   };
@@ -455,14 +465,17 @@ export const GardenApp: React.FC = () => {
     const berry = state.berries.find((candidate) => candidate.id === berryId);
     if (!berry) return;
     if (!berry.onMap) {
-      setState((current) => showBerryOnGarden(current, berryId));
+      void window.gardenAPI?.dispatch({ type: "show-berry", berryId });
     }
     setSelectedBerryId(berryId);
     if (berry.kind === "report") setReaderBerryId(berryId);
   };
 
   const latestTelemetry = state.telemetry.at(-1);
-  const companionClip = clipForAgentState(mainAgent?.state, latestTelemetry?.kind);
+  const companionClip = clipForAgentState(
+    mainAgent?.state,
+    latestTelemetry?.kind,
+  );
 
   // A running Work Run is either agent-driven (real AgentRunner, requires an API
   // key) or the scripted demo state machine. The two are no longer swapped
@@ -474,7 +487,8 @@ export const GardenApp: React.FC = () => {
       {isScriptedRun && (
         <div className="pointer-events-none absolute left-1/2 top-3 z-50 -translate-x-1/2">
           <span className="rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1 font-mono text-[11px] text-amber-300 shadow-lift backdrop-blur-sm">
-            Demo run — scripted steps (no API key; add one to .env for a real agent)
+            Demo run — scripted steps (no API key; add one to .env for a real
+            agent)
           </span>
         </div>
       )}
@@ -526,6 +540,14 @@ export const GardenApp: React.FC = () => {
         onOpenArtifact={handleFocusArtifact}
       />
 
+      {pendingApproval && (
+        <ApprovalBanner
+          approval={pendingApproval}
+          onApprove={() => handleResolveApproval(true)}
+          onDeny={() => handleResolveApproval(false)}
+        />
+      )}
+
       {ledgerOpen && (
         <IntelLedgerOverlay
           entries={ledgerEntries}
@@ -544,6 +566,38 @@ export const GardenApp: React.FC = () => {
     </main>
   );
 };
+
+/**
+ * Approval gate banner (ADR-0003): the agent has hard-stopped before a
+ * high-consequence Browser action and is BLOCKING until the user decides.
+ * Floats above the Command Bar so it is visible on the Garden canvas; the
+ * same gate is mirrored in the tab-view Command Bar.
+ */
+const ApprovalBanner: React.FC<{
+  approval: { caption: string; reason: string };
+  onApprove: () => void;
+  onDeny: () => void;
+}> = ({ approval, onApprove, onDeny }) => (
+  <div className="pointer-events-auto absolute bottom-28 left-1/2 z-50 w-[min(560px,90vw)] -translate-x-1/2">
+    <div className="rounded-2xl border border-amber-400/40 bg-amber-500/[0.08] px-4 py-3 shadow-lift backdrop-blur-md">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-300">
+          Approval needed
+        </span>
+      </div>
+      <p className="mt-1 text-sm font-medium text-ink">{approval.caption}</p>
+      <p className="mt-0.5 text-xs text-ink-muted">{approval.reason}</p>
+      <div className="mt-3 flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onDeny}>
+          Deny
+        </Button>
+        <Button variant="primary" size="sm" onClick={onApprove}>
+          Approve
+        </Button>
+      </div>
+    </div>
+  </div>
+);
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2.5;
@@ -576,9 +630,12 @@ const GardenWorld: React.FC<GardenWorldProps> = ({
   onViewportChange,
 }) => {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const panStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
-    null
-  );
+  const panStartRef = useRef<{
+    x: number;
+    y: number;
+    panX: number;
+    panY: number;
+  } | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
@@ -614,7 +671,9 @@ const GardenWorld: React.FC<GardenWorldProps> = ({
     return () => observer.disconnect();
   }, [pan, zoom, onViewportChange]);
 
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+  const handlePointerDown = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ): void => {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("[data-berry-card]")) return;
@@ -629,7 +688,9 @@ const GardenWorld: React.FC<GardenWorldProps> = ({
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
+  const handlePointerMove = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ): void => {
     const start = panStartRef.current;
     if (!start) return;
     setPan({
@@ -662,7 +723,7 @@ const GardenWorld: React.FC<GardenWorldProps> = ({
     setZoom((currentZoom) => {
       const nextZoom = Math.min(
         MAX_ZOOM,
-        Math.max(MIN_ZOOM, currentZoom - event.deltaY * 0.001)
+        Math.max(MIN_ZOOM, currentZoom - event.deltaY * 0.001),
       );
       setPan({
         x: cursorX - worldX * nextZoom,
@@ -825,7 +886,9 @@ const TabBerryPreview: React.FC<{ berry: Berry }> = ({ berry }) => {
         ) : (
           <div className="flex flex-col items-center gap-1.5 px-2 text-center text-ink-faint">
             <Globe2 className="size-5 opacity-50" />
-            <span className="text-[10px]">{hostname || "Loading preview…"}</span>
+            <span className="text-[10px]">
+              {hostname || "Loading preview…"}
+            </span>
           </div>
         )}
       </div>
@@ -853,7 +916,9 @@ const ArtifactBerryContent: React.FC<{ berry: Berry }> = ({ berry }) => {
       <h3 className="line-clamp-2 font-display text-lg font-semibold text-ink">
         {berry.title}
       </h3>
-      <p className="mt-1 line-clamp-1 text-sm text-ink-muted">{berry.subtitle}</p>
+      <p className="mt-1 line-clamp-1 text-sm text-ink-muted">
+        {berry.subtitle}
+      </p>
       {berry.screenshotDataUrl ? (
         <img
           src={berry.screenshotDataUrl}
@@ -910,4 +975,3 @@ const BerryCard: React.FC<BerryCardProps> = ({
     </button>
   );
 };
-

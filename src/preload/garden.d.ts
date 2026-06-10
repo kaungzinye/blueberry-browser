@@ -3,7 +3,13 @@ import { ElectronAPI } from "@electron-toolkit/preload";
 declare global {
   // ── Garden patch types — globally visible to renderer ──────────────────────
 
-  type AgentState = "idle" | "planning" | "moving" | "acting" | "blocked" | "complete";
+  type AgentState =
+    | "idle"
+    | "planning"
+    | "moving"
+    | "acting"
+    | "blocked"
+    | "complete";
   type BerryKind = "tab" | "sheet" | "xlsx" | "lead" | "report" | "work-run";
   type BerryStatus = "idle" | "reading" | "extracting" | "writing" | "complete";
   type TelemetryKind =
@@ -50,9 +56,22 @@ declare global {
     | { type: "berry-status"; berryId: string; status: BerryStatus }
     | { type: "berry-screenshot"; berryId: string; screenshotDataUrl: string }
     | { type: "telemetry"; event: PatchTelemetryEvent }
-    | { type: "agent-state"; agentId: string; state: AgentState; currentLabel: string }
-    | { type: "command-status"; commandId: string; status: "complete" | "planning" | "running" | "blocked" }
-    | { type: "work-run-status"; workRunId: string; status: "planning" | "running" | "complete" | "blocked" };
+    | {
+        type: "agent-state";
+        agentId: string;
+        state: AgentState;
+        currentLabel: string;
+      }
+    | {
+        type: "command-status";
+        commandId: string;
+        status: "complete" | "planning" | "running" | "blocked";
+      }
+    | {
+        type: "work-run-status";
+        workRunId: string;
+        status: "planning" | "running" | "complete" | "blocked";
+      };
 
   // ── gardenAPI shape exposed to the renderer ─────────────────────────────────
 
@@ -64,22 +83,46 @@ declare global {
     isActive?: boolean;
   }
 
-  interface RunCommandOpts {
-    commandText: string;
-    commandId: string;
+  /** A high-consequence Browser action awaiting the user's Approve/Deny. */
+  interface PendingApproval {
+    id: string;
     agentId: string;
-    workRunId: string;
-    gardenName?: string;
+    commandId?: string;
+    caption: string;
+    reason: string;
+  }
+
+  /**
+   * Full state broadcast envelope. `state` is the canonical GardenState
+   * (imported as a concrete type by the renderer; left structural here).
+   */
+  interface GardenSnapshot {
+    state: unknown;
+    pendingApproval: PendingApproval | null;
+  }
+
+  interface IntentResultFeedback {
+    selectMainAgentId?: string;
+    hint?: string;
   }
 
   interface GardenAPI {
-    openUrl: (url: string) => Promise<{ id: string; title: string; url: string } | null>;
+    openUrl: (
+      url: string,
+    ) => Promise<{ id: string; title: string; url: string } | null>;
     focusTab: (tabId: string) => Promise<boolean>;
     getTabBerries: () => Promise<TabBerrySnapshot[]>;
     showGarden: () => Promise<boolean>;
     hasApiKey: () => Promise<boolean>;
-    runCommand: (opts: RunCommandOpts) => Promise<{ started: boolean }>;
-    onAgentPatch: (cb: (patch: GardenStatePatch) => void) => () => void;
+    // Main-owned state (ADR-0003)
+    getState: () => Promise<GardenSnapshot>;
+    dispatch: (intent: unknown) => Promise<IntentResultFeedback>;
+    resolveApproval: (
+      approvalId: string,
+      approved: boolean,
+    ) => Promise<boolean>;
+    submitTurn: (agentId: string, text: string) => Promise<boolean>;
+    onGardenState: (cb: (snapshot: GardenSnapshot) => void) => () => void;
     onGardenShown: (cb: () => void) => () => void;
   }
 

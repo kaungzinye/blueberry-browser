@@ -1,5 +1,9 @@
 import { contextBridge } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
+import {
+  GARDEN_STATE_CHANNEL,
+  GARDEN_RESOLVE_APPROVAL_CHANNEL,
+} from "./../main/garden/channels";
 
 interface ChatRequest {
   message: string;
@@ -33,7 +37,7 @@ const sidebarAPI = {
 
   onMessagesUpdated: (callback: (messages: any[]) => void) => {
     electronAPI.ipcRenderer.on("chat-messages-updated", (_, messages) =>
-      callback(messages)
+      callback(messages),
     );
   },
 
@@ -56,6 +60,25 @@ const sidebarAPI = {
   // Command bar height (expand = ~400, collapse = 56)
   setCommandBarHeight: (height: number) =>
     electronAPI.ipcRenderer.invoke("sidebar-set-height", height),
+
+  // ── Garden Approval gate, visible in the tab-view Command Bar (ADR-0003) ──
+
+  /** Subscribe to main's state broadcast (for the pending Approval prompt). */
+  onGardenState: (cb: (snapshot: unknown) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: unknown) =>
+      cb(snapshot);
+    electronAPI.ipcRenderer.on(GARDEN_STATE_CHANNEL, listener);
+    return () =>
+      electronAPI.ipcRenderer.removeListener(GARDEN_STATE_CHANNEL, listener);
+  },
+
+  /** Resolve a blocking browser_action Approval gate (Approve/Deny). */
+  resolveApproval: (approvalId: string, approved: boolean) =>
+    electronAPI.ipcRenderer.invoke(
+      GARDEN_RESOLVE_APPROVAL_CHANNEL,
+      approvalId,
+      approved,
+    ),
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to
