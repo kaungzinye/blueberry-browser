@@ -13,10 +13,11 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import type {
-  BerryKind,
-  CommandLogEntry,
-  LedgerEntry,
+import {
+  filterBerrySwitcher,
+  type BerryKind,
+  type CommandLogEntry,
+  type LedgerEntry,
 } from "../domain/gardenDomain";
 import type { Agent, Berry } from "../domain/gardenDomain";
 import type {
@@ -80,6 +81,9 @@ interface GardenHudProps {
   onOpenArtifact: (berryId: string) => void;
   /** Global, secondary Command Log (PRD stories 16–17). */
   commandLog: CommandLogEntry[];
+  /** Every Berry (tabs + artifacts) for the ⌘K Berry switcher (PRD story 9). */
+  switcherEntries: LedgerEntry[];
+  onActivateBerry: (berryId: string) => void;
 }
 
 const MINIMAP_WIDTH = 128;
@@ -328,9 +332,7 @@ const MainAgentRosterPanel: React.FC<{
   showWorkRunControls?: boolean;
   onAdvanceWorkRun?: () => void;
   onCompleteWorkRun?: () => void;
-  expanded: boolean;
   onToggleExpanded: () => void;
-  cycleFlash: boolean;
 }> = ({
   roster,
   selectedMainAgentId,
@@ -348,53 +350,8 @@ const MainAgentRosterPanel: React.FC<{
   showWorkRunControls,
   onAdvanceWorkRun,
   onCompleteWorkRun,
-  expanded,
   onToggleExpanded,
-  cycleFlash,
 }) => {
-  if (!expanded) {
-    const selectedEntry =
-      roster.find((e) => e.agent.id === selectedMainAgentId) ?? roster[0];
-    const selectedIndex = selectedEntry ? roster.indexOf(selectedEntry) : 0;
-    const done =
-      selectedEntry
-        ? getCommandRosterStatus(selectedEntry.command) === "completed"
-        : false;
-
-    return (
-      <button
-        type="button"
-        onClick={onToggleExpanded}
-        className={`${PANEL} hud-fade w-full rounded-xl px-3 py-2.5 text-left transition-all duration-300 ${
-          cycleFlash ? "ring-1 ring-accent/60" : ""
-        }`}
-        aria-label="Expand Main Agent roster"
-      >
-        <div className="flex items-center gap-2">
-          <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-accent/80">
-            {roster.length === 0 ? "Agents" : `Agent ${selectedIndex + 1}`}
-          </span>
-          {roster.length > 0 && (
-            <span
-              className={`size-1.5 shrink-0 rounded-full ${
-                done ? "bg-tm-complete" : "animate-pulse bg-accent"
-              }`}
-            />
-          )}
-          <span className="min-w-0 flex-1 truncate text-xs text-ink">
-            {selectedEntry?.agent.currentLabel ?? "No agents · Tab cycles"}
-          </span>
-          {roster.length > 1 && (
-            <span className="shrink-0 rounded-full bg-surface-2/60 px-1.5 py-0.5 font-mono text-[9px] text-ink-faint">
-              {roster.length}
-            </span>
-          )}
-          <ChevronDown className="size-3 shrink-0 text-ink-faint" />
-        </div>
-      </button>
-    );
-  }
-
   return (
     <div
       className={`${PANEL} hud-rise flex max-h-full min-h-0 w-full flex-col rounded-2xl shadow-panel`}
@@ -747,6 +704,170 @@ const ArtifactsShelf: React.FC<{
 };
 
 /**
+ * Berry switcher palette (PRD story 9): ⌘K fast switcher over every Berry —
+ * tabs and artifacts alike — with type-to-filter and arrow/Enter navigation.
+ */
+const BerrySwitcherPalette: React.FC<{
+  entries: LedgerEntry[];
+  onActivate: (berryId: string) => void;
+  onClose: () => void;
+}> = ({ entries, onActivate, onClose }) => {
+  const [query, setQuery] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const filtered = useMemo(
+    () => filterBerrySwitcher(entries, query),
+    [entries, query],
+  );
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    setCursor(0);
+  }, [query]);
+
+  const activate = (berryId: string): void => {
+    onActivate(berryId);
+    onClose();
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent): void => {
+    if (event.key === "Escape") onClose();
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setCursor((c) => Math.min(c + 1, filtered.length - 1));
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setCursor((c) => Math.max(c - 1, 0));
+    }
+    if (event.key === "Enter" && filtered[cursor]) {
+      event.preventDefault();
+      activate(filtered[cursor].id);
+    }
+  };
+
+  return (
+    <div
+      className="pointer-events-auto absolute inset-0 z-[60] flex items-start justify-center bg-garden-base/40 pt-[12vh] hud-fade"
+      onMouseDown={onClose}
+      aria-label="Berry switcher"
+    >
+      <div
+        className={`${PANEL} hud-drop flex max-h-[60vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl shadow-panel`}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Switch to a Berry…"
+          className="w-full border-b border-line/10 bg-transparent px-4 py-3 text-sm text-ink outline-none placeholder:text-ink-faint"
+        />
+        <ScrollArea className="min-h-0 flex-1">
+          {filtered.length === 0 ? (
+            <p className="px-4 py-6 text-center text-xs text-ink-faint">
+              No Berries match “{query}”.
+            </p>
+          ) : (
+            <ol className="flex flex-col px-2 py-2">
+              {filtered.map((entry, index) => {
+                const Icon = artifactIconFor(entry.kind);
+                return (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      onClick={() => activate(entry.id)}
+                      onMouseEnter={() => setCursor(index)}
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors ${
+                        index === cursor
+                          ? "bg-accent/12 text-ink"
+                          : "text-ink-muted hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      <Icon className="size-3.5 shrink-0 text-accent" />
+                      <span className="min-w-0 flex-1 truncate text-xs">
+                        {entry.title}
+                      </span>
+                      <span className="shrink-0 font-mono text-[9px] uppercase tracking-wide text-ink-faint">
+                        {entry.kind}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </ScrollArea>
+        <p className="shrink-0 border-t border-line/10 px-4 py-2 text-center font-mono text-[10px] text-ink-faint">
+          ↑↓ navigate · ↵ open · esc close
+        </p>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Hidden-by-default agent rail. Hovering the right window edge fades in the
+ * full vertical rail; Tab-cycling transiently surfaces the 3 most recently
+ * selected agents. Clicking a tile selects; the bottom tile opens the roster.
+ */
+const AgentRail: React.FC<{
+  entries: MainAgentRosterEntry[];
+  selectedMainAgentId: string | null;
+  onSelect: (mainAgentId: string) => void;
+  onExpand: () => void;
+  indexOf: (mainAgentId: string) => number;
+}> = ({ entries, selectedMainAgentId, onSelect, onExpand, indexOf }) => (
+  <div
+    className={`${PANEL} hud-fade flex flex-col items-center gap-2 rounded-2xl p-2 shadow-panel`}
+    aria-label="Agent rail"
+  >
+    {entries.map((entry) => {
+      const selected = entry.agent.id === selectedMainAgentId;
+      const done = getCommandRosterStatus(entry.command) === "completed";
+      return (
+        <button
+          key={entry.agent.id}
+          type="button"
+          onClick={() => onSelect(entry.agent.id)}
+          className={`relative flex size-10 items-center justify-center rounded-full border transition-all duration-200 ${
+            selected
+              ? "border-accent/60 bg-accent/15 text-accent"
+              : "border-line/12 bg-surface-1/70 text-ink-muted hover:border-accent/40 hover:text-ink"
+          }`}
+          title={`Main Agent ${indexOf(entry.agent.id) + 1} — ${entry.agent.currentLabel}`}
+          aria-label={`Select Main Agent ${indexOf(entry.agent.id) + 1}`}
+        >
+          <Bot className="size-4" />
+          <span
+            className={`absolute -right-0.5 -top-0.5 size-2 rounded-full ${
+              done ? "bg-tm-complete" : "animate-pulse bg-accent"
+            }`}
+          />
+          <span className="absolute -bottom-1 -right-1 flex size-4 items-center justify-center rounded-full bg-surface-2 font-mono text-[8px] text-ink-muted">
+            {indexOf(entry.agent.id) + 1}
+          </span>
+        </button>
+      );
+    })}
+    <button
+      type="button"
+      onClick={onExpand}
+      className="flex size-10 items-center justify-center rounded-full border border-line/12 bg-surface-1/70 text-ink-faint transition-colors hover:border-accent/40 hover:text-ink"
+      title="Open agent roster"
+      aria-label="Open agent roster"
+    >
+      <Maximize2 className="size-3.5" />
+    </button>
+  </div>
+);
+
+/**
  * Command Log overlay (PRD stories 16–17): all commands with their exact
  * tool/action traces. Deliberately secondary — opened on demand, never the
  * primary surface.
@@ -938,11 +1059,19 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     onShowArtifactOnGarden,
     onOpenArtifact,
     commandLog,
+    switcherEntries,
+    onActivateBerry,
   } = props;
 
   const [chatExpanded, setChatExpanded] = useState(false);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
-  const [cycleFlash, setCycleFlash] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  /** Right-edge hover reveals the full agent rail. */
+  const [railHovered, setRailHovered] = useState(false);
+  /** Tab-cycling transiently surfaces the recent-agents rail. */
+  const [cycleRailVisible, setCycleRailVisible] = useState(false);
+  /** Most recently selected Main Agent ids, newest first. */
+  const [recentAgentIds, setRecentAgentIds] = useState<string[]>([]);
   const [artifactsPanelExpanded, setArtifactsPanelExpanded] = useState(false);
   const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
@@ -974,12 +1103,28 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [artifactsFullscreen]);
 
+  // Track selection recency and transiently surface the recent-agents rail.
   useEffect(() => {
     if (!selectedMainAgentId) return;
-    setCycleFlash(true);
-    const t = setTimeout(() => setCycleFlash(false), 500);
+    setRecentAgentIds((ids) =>
+      [selectedMainAgentId, ...ids.filter((id) => id !== selectedMainAgentId)].slice(0, 3),
+    );
+    setCycleRailVisible(true);
+    const t = setTimeout(() => setCycleRailVisible(false), 1500);
     return () => clearTimeout(t);
   }, [selectedMainAgentId]);
+
+  // ⌘K — Berry switcher palette.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSwitcherOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const minimap = useMemo(() => {
     const { panX, panY, zoom, width, height } = viewport;
@@ -1072,35 +1217,81 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
         </div>
       )}
 
+      {/* ⌘K Berry switcher palette */}
+      {switcherOpen && (
+        <BerrySwitcherPalette
+          entries={switcherEntries}
+          onActivate={onActivateBerry}
+          onClose={() => setSwitcherOpen(false)}
+        />
+      )}
+
       <div className="relative min-h-0 flex-1" aria-label="Garden view band">
-        {/* Agents right column — compact chip or expanded roster */}
-        <div
-          className="pointer-events-none absolute right-3 top-1/2 z-40 flex max-h-full -translate-y-1/2 flex-col"
-          style={{ width: GARDEN_RIGHT_HUD_WIDTH }}
-          aria-label="Garden right HUD"
-        >
-          <MainAgentRosterPanel
-            roster={mainAgentRoster}
-            selectedMainAgentId={selectedMainAgentId}
-            scope={mainAgentCycleScope}
-            onScopeChange={onMainAgentCycleScopeChange}
-            onSelectMainAgent={onSelectMainAgent}
-            onNewCommand={onNewCommand}
-            onMarkCommandDone={onMarkCommandDone}
-            onReopenCommand={onReopenCommand}
-            rosterCycleHint={rosterCycleHint}
-            onDismissRosterHint={onDismissRosterHint}
-            berryCount={berries.length}
-            plannedWorkRunTitle={plannedWorkRunTitle}
-            onApprovePlan={onApprovePlan}
-            showWorkRunControls={showWorkRunControls}
-            onAdvanceWorkRun={onAdvanceWorkRun}
-            onCompleteWorkRun={onCompleteWorkRun}
-            expanded={rightPanelExpanded}
-            onToggleExpanded={() => setRightPanelExpanded((v) => !v)}
-            cycleFlash={cycleFlash}
-          />
-        </div>
+        {/* Agents right column — hidden rail (hover / cycle) or expanded roster */}
+        {rightPanelExpanded ? (
+          <div
+            className="pointer-events-none absolute right-3 top-1/2 z-40 flex max-h-full -translate-y-1/2 flex-col"
+            style={{ width: GARDEN_RIGHT_HUD_WIDTH }}
+            aria-label="Garden right HUD"
+          >
+            <MainAgentRosterPanel
+              roster={mainAgentRoster}
+              selectedMainAgentId={selectedMainAgentId}
+              scope={mainAgentCycleScope}
+              onScopeChange={onMainAgentCycleScopeChange}
+              onSelectMainAgent={onSelectMainAgent}
+              onNewCommand={onNewCommand}
+              onMarkCommandDone={onMarkCommandDone}
+              onReopenCommand={onReopenCommand}
+              rosterCycleHint={rosterCycleHint}
+              onDismissRosterHint={onDismissRosterHint}
+              berryCount={berries.length}
+              plannedWorkRunTitle={plannedWorkRunTitle}
+              onApprovePlan={onApprovePlan}
+              showWorkRunControls={showWorkRunControls}
+              onAdvanceWorkRun={onAdvanceWorkRun}
+              onCompleteWorkRun={onCompleteWorkRun}
+              onToggleExpanded={() => setRightPanelExpanded(false)}
+            />
+          </div>
+        ) : (
+          <>
+            {/* Invisible right-edge hover zone — reveals the full agent rail */}
+            <div
+              className="pointer-events-auto absolute bottom-0 right-0 top-0 z-40 w-3"
+              onMouseEnter={() => setRailHovered(true)}
+              aria-hidden
+            />
+            {(railHovered || cycleRailVisible) && mainAgentRoster.length > 0 && (
+              <div
+                className="pointer-events-auto absolute right-2 top-1/2 z-40 -translate-y-1/2"
+                onMouseEnter={() => setRailHovered(true)}
+                onMouseLeave={() => setRailHovered(false)}
+              >
+                <AgentRail
+                  entries={
+                    railHovered
+                      ? mainAgentRoster
+                      : // Cycling: only the most recently selected agents.
+                        recentAgentIds
+                          .map((id) =>
+                            mainAgentRoster.find((e) => e.agent.id === id),
+                          )
+                          .filter(
+                            (e): e is MainAgentRosterEntry => Boolean(e),
+                          )
+                  }
+                  selectedMainAgentId={selectedMainAgentId}
+                  onSelect={onSelectMainAgent}
+                  onExpand={() => setRightPanelExpanded(true)}
+                  indexOf={(id) =>
+                    mainAgentRoster.findIndex((e) => e.agent.id === id)
+                  }
+                />
+              </div>
+            )}
+          </>
+        )}
 
         {/* Artifacts panel overlay — floats above bottom bar from bottom-right */}
         {artifactsPanelExpanded && !artifactsFullscreen && (

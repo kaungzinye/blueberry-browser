@@ -5,6 +5,7 @@ import {
   approveWorkRun,
   completeWorkRun,
   createInitialGardenState,
+  filterBerrySwitcher,
   getCommandLog,
   getLedgerEntries,
   getReaderContent,
@@ -120,6 +121,27 @@ describe("Garden command routing", () => {
       workRunId: next.workRuns[0].id,
     });
     expect(next.workRuns[0].status).toBe("planning");
+  });
+});
+
+describe("Berry switcher", () => {
+  it("matches berries by title, subtitle, or kind, case-insensitively", () => {
+    const running = approveWorkRun(
+      submitCommand(createInitialGardenState(), demoCommand).state,
+      "work-run-1"
+    );
+    const entries = getLedgerEntries(running);
+
+    expect(filterBerrySwitcher(entries, "")).toHaveLength(entries.length);
+    expect(
+      filterBerrySwitcher(entries, "STRAWBERRY").every((entry) =>
+        entry.title.toLowerCase().includes("strawberry")
+      )
+    ).toBe(true);
+    expect(
+      filterBerrySwitcher(entries, "sheet").some((entry) => entry.kind === "sheet")
+    ).toBe(true);
+    expect(filterBerrySwitcher(entries, "zzz-no-match")).toHaveLength(0);
   });
 });
 

@@ -206,6 +206,23 @@ export const getLedgerEntries = (state: GardenState): LedgerEntry[] =>
   }));
 
 /**
+ * Berry switcher filter (PRD story 9): fast fuzzy-ish matching over every
+ * Berry — title, subtitle, or kind — for the ⌘K palette. Empty query → all.
+ */
+export const filterBerrySwitcher = (
+  entries: LedgerEntry[],
+  query: string,
+): LedgerEntry[] => {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((entry) =>
+    [entry.title, entry.subtitle, entry.kind, entry.workRunTitle].some(
+      (field) => field?.toLowerCase().includes(needle),
+    ),
+  );
+};
+
+/**
  * Command Log entry (PRD stories 16–17): one row per Command with its exact
  * tool/action trace. Derived, not stored — the log is a view over commands +
  * telemetry, so it can never drift from what actually happened.

@@ -494,6 +494,18 @@ export const GardenApp: React.FC = () => {
     setLedgerOpen(false);
   };
 
+  // Berry switcher activation (⌘K): tabs enter the live tab; artifacts focus
+  // on the canvas (reports open the reader).
+  const handleActivateBerry = (berryId: string): void => {
+    const berry = state.berries.find((candidate) => candidate.id === berryId);
+    if (!berry) return;
+    if (berry.browserTabId || berry.kind === "tab") {
+      handleOpenBerry(berry);
+      return;
+    }
+    handleFocusArtifact(berryId);
+  };
+
   const handleFocusArtifact = (berryId: string): void => {
     const berry = state.berries.find((candidate) => candidate.id === berryId);
     if (!berry) return;
@@ -574,6 +586,8 @@ export const GardenApp: React.FC = () => {
         onOpenLedger={() => setLedgerOpen(true)}
         allArtifacts={allArtifacts}
         commandLog={commandLog}
+        switcherEntries={ledgerEntries}
+        onActivateBerry={handleActivateBerry}
         onShowArtifactOnGarden={handleShowOnGarden}
         onOpenArtifact={handleFocusArtifact}
       />
