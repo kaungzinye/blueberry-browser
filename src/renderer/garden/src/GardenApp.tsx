@@ -92,6 +92,13 @@ export const GardenApp: React.FC = () => {
   const [pendingApproval, setPendingApproval] =
     useState<PendingApproval | null>(null);
   const [gardenEchoes, setGardenEchoes] = useState<FadedGardenEcho[]>([]);
+  // Camera (stories 42–44): commanded center target + follow-the-agent mode.
+  const [cameraTarget, setCameraTarget] = useState<{
+    x: number;
+    y: number;
+    nonce: number;
+  } | null>(null);
+  const [followAgent, setFollowAgent] = useState(false);
   const [viewport, setViewport] = useState<ViewportTransform>({
     panX: 0,
     panY: 0,
@@ -273,6 +280,27 @@ export const GardenApp: React.FC = () => {
           setRosterCycleHint(null);
         }
       }
+      const target = event.target as HTMLElement | null;
+      const typing = Boolean(
+        target?.closest("input, textarea, [contenteditable='true']"),
+      );
+
+      // Camera: C centers on the selection (berry, else agent); F follows.
+      if (!typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        if (event.key.toLowerCase() === "c") {
+          const berry = selectedBerryId
+            ? state.berries.find((b) => b.id === selectedBerryId)
+            : undefined;
+          const point = berry
+            ? { x: berry.x + berry.width / 2, y: berry.y + berry.height / 2 }
+            : agentPosition;
+          setCameraTarget((prev) => ({ ...point, nonce: (prev?.nonce ?? 0) + 1 }));
+        }
+        if (event.key.toLowerCase() === "f") {
+          setFollowAgent((on) => !on);
+        }
+      }
+
       if (
         event.key !== "Tab" ||
         event.metaKey ||
@@ -281,8 +309,7 @@ export const GardenApp: React.FC = () => {
       ) {
         return;
       }
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, [contenteditable='true']")) {
+      if (typing) {
         return;
       }
 
@@ -305,6 +332,7 @@ export const GardenApp: React.FC = () => {
     state,
     mainAgentCycleScope,
     selectedMainAgentId,
+    selectedBerryId,
   ]);
 
   useEffect(() => {
@@ -322,6 +350,15 @@ export const GardenApp: React.FC = () => {
       y: target.y + target.height + 22,
     };
   }, [visibleBerries]);
+
+  // Follow mode (story 42): keep the camera glued to the agent as it moves.
+  useEffect(() => {
+    if (!followAgent) return;
+    setCameraTarget((prev) => ({
+      ...agentPosition,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+  }, [followAgent, agentPosition]);
 
   const handleSubmit = (): void => {
     const text = commandText.trim();
@@ -559,6 +596,7 @@ export const GardenApp: React.FC = () => {
         gardenEchoes={gardenEchoes}
         selectedBerryId={selectedBerryId}
         agentPosition={agentPosition}
+        cameraTarget={cameraTarget}
         showMapAgent={Boolean(runningWorkRun)}
         companionClip={companionClip}
         companionBlocked={mainAgent?.state === "blocked"}
@@ -690,6 +728,8 @@ interface GardenWorldProps {
   onSelectBerry: (id: string) => void;
   onOpenBerry: (berry: Berry) => void;
   onViewportChange: (viewport: ViewportTransform) => void;
+  /** Camera command (stories 42–44): glide the viewport to center this world point. */
+  cameraTarget: { x: number; y: number; nonce: number } | null;
 }
 
 const GardenWorld: React.FC<GardenWorldProps> = ({
@@ -704,6 +744,7 @@ const GardenWorld: React.FC<GardenWorldProps> = ({
   onSelectBerry,
   onOpenBerry,
   onViewportChange,
+  cameraTarget,
 }) => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const panStartRef = useRef<{
@@ -726,6 +767,27 @@ const GardenWorld: React.FC<GardenWorldProps> = ({
   useEffect(() => {
     centerViewport();
   }, [centerViewport]);
+
+  /** True while the camera glides to a commanded target (CSS transition on). */
+  const [isGliding, setIsGliding] = useState(false);
+
+  // Camera command: center the target world point, gliding with the shared
+  // HUD ease so the move reads as one motion, then hand control back.
+  useEffect(() => {
+    if (!cameraTarget) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    setIsGliding(true);
+    setPan({
+      x: viewport.clientWidth / 2 - cameraTarget.x * zoom,
+      y: viewport.clientHeight / 2 - cameraTarget.y * zoom,
+    });
+    const t = setTimeout(() => setIsGliding(false), 450);
+    return () => clearTimeout(t);
+    // zoom intentionally omitted: re-centering on zoom change would fight the
+    // cursor-anchored wheel zoom.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraTarget?.nonce]);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -825,6 +887,9 @@ const GardenWorld: React.FC<GardenWorldProps> = ({
         className="absolute left-0 top-0 origin-top-left will-change-transform"
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transition: isGliding
+            ? "transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)"
+            : undefined,
         }}
       >
         <div
