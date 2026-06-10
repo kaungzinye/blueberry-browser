@@ -281,6 +281,11 @@ export class EventManager {
       this.mainWindow.showGarden();
       return true;
     });
+
+    // Grow/shrink the top bar to host the omnibox suggestion panel.
+    ipcMain.handle("set-address-expanded", (_, height: number) => {
+      this.mainWindow.topBar.setOverlayHeight(height);
+    });
   }
 
   private handleDarkModeEvents(): void {

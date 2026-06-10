@@ -61,10 +61,11 @@
   html,
   body,
   #root {
-    /* Near-black, slightly blue — darker than the Garden canvas
-       (--garden-base #0e1a33) so the chrome frames the canvas rather than
-       blending into it. */
-    background: rgb(8 13 26);
+    /* Transparent: each region paints its own chrome (the rail root and the
+       top bar row both carry bg-[#080d1a]). This lets the omnibox suggestion
+       panel float over the page content instead of the grown top-bar view
+       showing as one continuous dark block. */
+    background: transparent;
   }
 
   body {

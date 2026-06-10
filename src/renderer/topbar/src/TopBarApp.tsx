@@ -31,7 +31,9 @@ export const TopBarApp: React.FC = () => {
         <BrowserProvider>
             <div
                 className={cn(
-                    'flex h-full items-center gap-1 app-region-drag bg-[#080d1a] text-[#e7ecf6] px-2',
+                    // Fixed-height bar pinned to the top; when the omnibox panel
+                    // opens the view grows below this row (overflow stays visible).
+                    'relative flex h-12 shrink-0 items-center gap-1 app-region-drag bg-[#080d1a] text-[#e7ecf6] px-2',
                     // When the rail is collapsed the bar spans to x=0, so reserve
                     // space for the macOS traffic lights at the far left.
                     railCollapsed && 'pl-20'

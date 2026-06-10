@@ -100,6 +100,18 @@ _Avoid_: Chat transcript, ledger
 A UI for browsing Artifact Berries and related outputs in a Garden. Secondary to the Garden map and Command Log.
 _Avoid_: Command Log, artifact store
 
+**Browser action**:
+An agent's direct manipulation of a Tab Berry's live DOM — click, type, scroll, select, press key — as distinct from merely opening (`navigate`) or reading a tab. A Browser action requires the agent to be the tab's controller, and is always paced and narrated so the user can follow it.
+_Avoid_: automation step, Playwright call, tool call (when meaning the on-page act)
+
+**Narration overlay**:
+The on-page visual layer drawn over a live Tab that shows the user what the agent is doing — pointer travel, element highlight, click ripple, text forming in fields. It exists for the human watching, not for the model's grounding; its presence signals the tab is agent-controlled.
+_Avoid_: set-of-marks, debug boxes, grounding overlay
+
+**Approval gate**:
+A mandatory pause where an agent stops before a high-consequence Browser action (submit, purchase, send, authenticate, upload) and waits for explicit user confirmation. Safe actions proceed without a gate. Orthogonal to **Steer** (folds in guidance) and **Take over** (seizes control).
+_Avoid_: confirmation popup (generic), interrupt
+
 ## Flagged ambiguities
 
 - **Subagent vs demo “phases”**: Product docs describe sub-worker *phases* under one orchestrator; this glossary treats Subagents as real roster units, created on demand by the Main Agent (not pre-seeded per Command or Work Run). Implementation may still run them sequentially at first.

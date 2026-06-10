@@ -228,6 +228,28 @@ export class AgentRunner {
     const recorder = createRecorder();
     let browserActionCount = 0;
 
+    // The most recent berry a tool read FROM (a tab/search result). Consumed by
+    // write_artifact to draw a source→destination data-flow line in the garden.
+    let lastSourceBerryId: string | undefined;
+
+    // Emit a tool_call telemetry signal at the moment a tool is invoked. This is
+    // the defined "tool invoked" visual; without it the tool_call signature/clip
+    // would be dead code. berryId is the berry the call is about, if known yet.
+    const emitToolCall = (label: string, berryId?: string): void => {
+      self.emit({
+        type: "telemetry",
+        event: {
+          id: self.tid(),
+          workRunId,
+          agentId,
+          berryId,
+          kind: "tool_call",
+          label,
+          icon: "tool",
+        },
+      });
+    };
+
     // ── Tools (v5: field is `inputSchema`, not `parameters`) ──────────────────
 
     const navigate_tab = tool({
@@ -246,6 +268,7 @@ export class AgentRunner {
         const tab = self.window.createTab(url);
         const berryId = `berry-tab-${tab.id}`;
         const pos = nextPos();
+        emitToolCall(`Opening ${label}`, berryId);
 
         self.emit({
           type: "berry-created",
@@ -327,6 +350,8 @@ export class AgentRunner {
             icon: "eye",
           },
         });
+        // This tab is now the source a later write_artifact draws its line from.
+        lastSourceBerryId = berryId;
 
         return { tabId: tab.id, berryId, url, title: tab.title || label, text };
       },
@@ -442,6 +467,7 @@ export class AgentRunner {
 
         const berryId = `berry-artifact-${filename.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`;
         const pos = nextPos();
+        emitToolCall(`Writing ${title}`, berryId);
 
         self.emit({
           type: "berry-created",
@@ -473,6 +499,9 @@ export class AgentRunner {
             workRunId,
             agentId,
             berryId,
+            // Draw the data-flow line from the last source read to this artifact.
+            fromBerryId: lastSourceBerryId,
+            toBerryId: berryId,
             kind: "write",
             label: `Writing ${title}`,
             icon: "write",
@@ -618,6 +647,7 @@ export class AgentRunner {
         }
         const berryId = `berry-tab-${tab.id}`;
         const caption = label ?? `${capitalize(action)} ${target}`;
+        emitToolCall(caption, berryId);
 
         // ── Observe → digest → resolve ──────────────────────────────────────
         const digest = await extractDigest(tab);

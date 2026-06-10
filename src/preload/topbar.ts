@@ -38,6 +38,32 @@ const topBarAPI = {
 
   // Garden
   showGarden: () => electronAPI.ipcRenderer.invoke("garden-show"),
+
+  // Grow/shrink the top bar to host the omnibox suggestion panel (px below the bar).
+  setAddressExpanded: (height: number) =>
+    electronAPI.ipcRenderer.invoke("set-address-expanded", height),
+
+  // Fires when the content slot's occupant changes (Garden <-> a tab), so the
+  // URL bar can show the garden address or the tab URL without waiting on the poll.
+  onSlotChanged: (
+    cb: (slot: { kind: "garden" } | { kind: "tab"; tabId: string }) => void
+  ): (() => void) => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      slot: { kind: "garden" } | { kind: "tab"; tabId: string }
+    ): void => cb(slot);
+    electronAPI.ipcRenderer.on("slot-changed", listener);
+    return () => electronAPI.ipcRenderer.removeListener("slot-changed", listener);
+  },
+
+  // Fires when another view (a tab or the Garden) gains focus, so the URL bar
+  // can collapse — DOM blur does not cross WebContentsView boundaries.
+  onCollapseAddressBar: (cb: () => void): (() => void) => {
+    const listener = (): void => cb();
+    electronAPI.ipcRenderer.on("collapse-address-bar", listener);
+    return () =>
+      electronAPI.ipcRenderer.removeListener("collapse-address-bar", listener);
+  },
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

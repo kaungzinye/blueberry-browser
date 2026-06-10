@@ -11,6 +11,8 @@ interface BrowserContextType {
     tabs: TabInfo[]
     activeTab: TabInfo | null
     isLoading: boolean
+    /** True when the Garden canvas (not a live tab) occupies the content slot. */
+    isGardenActive: boolean
 
     // Tab management
     createTab: (url?: string) => Promise<void>
@@ -20,6 +22,7 @@ interface BrowserContextType {
 
     // Navigation
     navigateToUrl: (url: string) => Promise<void>
+    showGarden: () => Promise<void>
     goBack: () => Promise<void>
     goForward: () => Promise<void>
     reload: () => Promise<void>
@@ -42,6 +45,8 @@ export const useBrowser = () => {
 export const BrowserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [tabs, setTabs] = useState<TabInfo[]>([])
     const [isLoading, setIsLoading] = useState(false)
+    // The Garden holds the slot at launch (Window starts on showGarden()).
+    const [isGardenActive, setIsGardenActive] = useState(true)
 
     const activeTab = tabs.find(tab => tab.isActive) || null
 
@@ -57,7 +62,13 @@ export const BrowserProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const createTab = useCallback(async (url?: string) => {
         setIsLoading(true)
         try {
-            await window.topBarAPI.createTab(url)
+            // Switch to the new tab so it takes the content slot — otherwise it
+            // opens hidden behind the Garden (the visibility gap).
+            const created = await window.topBarAPI.createTab(url)
+            if (created) {
+                await window.topBarAPI.switchTab(created.id)
+                setIsGardenActive(false)
+            }
             await refreshTabs()
         } catch (error) {
             console.error('Failed to create tab:', error)
@@ -104,6 +115,16 @@ export const BrowserProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setIsLoading(false)
         }
     }, [activeTab, refreshTabs])
+
+    const showGarden = useCallback(async () => {
+        try {
+            await window.topBarAPI.showGarden()
+            setIsGardenActive(true)
+            await refreshTabs()
+        } catch (error) {
+            console.error('Failed to show garden:', error)
+        }
+    }, [refreshTabs])
 
     const goBack = useCallback(async () => {
         if (!activeTab) return
@@ -161,6 +182,15 @@ export const BrowserProvider: React.FC<{ children: React.ReactNode }> = ({ child
         refreshTabs()
     }, [refreshTabs])
 
+    // Keep slot awareness in sync with the main process (garden <-> tab swaps
+    // can originate from the garden canvas, the tab rail, or tab close).
+    useEffect(() => {
+        return window.topBarAPI.onSlotChanged((slot) => {
+            setIsGardenActive(slot.kind === 'garden')
+            refreshTabs()
+        })
+    }, [refreshTabs])
+
     // Periodic refresh to keep tabs in sync
     useEffect(() => {
         const interval = setInterval(refreshTabs, 2000) // Refresh every 2 seconds
@@ -171,11 +201,13 @@ export const BrowserProvider: React.FC<{ children: React.ReactNode }> = ({ child
         tabs,
         activeTab,
         isLoading,
+        isGardenActive,
         createTab,
         closeTab,
         switchTab,
         refreshTabs,
         navigateToUrl,
+        showGarden,
         goBack,
         goForward,
         reload,

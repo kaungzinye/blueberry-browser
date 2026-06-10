@@ -390,6 +390,8 @@ export const GardenApp: React.FC = () => {
   const handleApprovePlan = (): void => {
     if (!plannedWorkRun || !selectedCommand || !selectedMainAgentId) return;
 
+    // Engine selection is explicit: a configured API key runs the real agent;
+    // otherwise we fall back to the scripted demo, surfaced by the demo badge.
     if (hasRealAgent) {
       // Real mode: agent runner streams patches; skip the demo state machine.
       window.gardenAPI?.runCommand({
@@ -462,8 +464,20 @@ export const GardenApp: React.FC = () => {
   const latestTelemetry = state.telemetry.at(-1);
   const companionClip = clipForAgentState(mainAgent?.state, latestTelemetry?.kind);
 
+  // A running Work Run is either agent-driven (real AgentRunner, requires an API
+  // key) or the scripted demo state machine. The two are no longer swapped
+  // silently — when the scripted engine is active we surface it explicitly.
+  const isScriptedRun = Boolean(runningWorkRun) && !hasRealAgent;
+
   return (
     <main className="relative h-full w-full overflow-hidden bg-garden-base text-ink">
+      {isScriptedRun && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-50 -translate-x-1/2">
+          <span className="rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1 font-mono text-[11px] text-amber-300 shadow-lift backdrop-blur-sm">
+            Demo run — scripted steps (no API key; add one to .env for a real agent)
+          </span>
+        </div>
+      )}
       <GardenWorld
         berries={visibleBerries}
         telemetry={state.telemetry}

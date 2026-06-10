@@ -32,6 +32,15 @@ interface TopBarAPI {
 
   // Garden
   showGarden: () => Promise<boolean>;
+
+  // Grow/shrink the top bar to host the omnibox suggestion panel.
+  setAddressExpanded: (height: number) => Promise<void>;
+
+  // Content-slot + focus notifications. Both return an unsubscribe function.
+  onSlotChanged: (
+    cb: (slot: { kind: "garden" } | { kind: "tab"; tabId: string }) => void
+  ) => () => void;
+  onCollapseAddressBar: (cb: () => void) => () => void;
 }
 
 declare global {

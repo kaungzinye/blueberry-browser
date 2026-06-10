@@ -44,6 +44,10 @@ export class Window {
     // Set the window reference on the LLM client to avoid circular dependency
     this._sideBar.client.setWindow(this);
 
+    // Collapse the URL bar whenever the Garden view takes focus — DOM blur does
+    // not fire across WebContentsView boundaries, so the topbar can't detect it.
+    this.attachFocusCollapse(this._garden.view.webContents);
+
     // Create the first tab
     this.createTab();
     this.showGarden();
@@ -108,6 +112,9 @@ export class Window {
     // Add the tab's WebContentsView to the window
     this._baseWindow.contentView.addChildView(tab.view);
 
+    // Collapse the URL bar when this tab takes focus (cross-view click-out).
+    this.attachFocusCollapse(tab.webContents);
+
     // Fill the area right of the tab rail, below the top bar, above the command bar.
     const bounds = this._baseWindow.getBounds();
     const cmdBarH = this._sideBar?.getIsVisible() ? this._sideBar.getCurrentHeight() : 0;
@@ -148,10 +155,16 @@ export class Window {
   showGarden(): void {
     this.activeView = "garden";
     this.tabsMap.forEach((tab) => tab.hide());
+    // The Command Bar is the tab-view chat surface; the Garden has its own
+    // Command Bar (the bottom input on the canvas), so hide the chrome one.
+    this._sideBar.hide();
     this._garden.show();
-    this._garden.updateBounds();
+    // Thread the live rail width — otherwise a collapsed rail leaves a dead
+    // gutter at LEFT_RAIL_WIDTH (every other layout path uses this.railWidth).
+    this._garden.updateBounds(this.railWidth);
     // Tell the garden it just became visible so it can pull fresh tab berries.
     this._garden.view.webContents.send("garden-shown");
+    this.notifySlot();
   }
 
   /**
@@ -213,13 +226,34 @@ export class Window {
     });
 
     tab.show();
+    // Surface the bottom Command Bar in tab view (show before recomputing tab
+    // bounds so the tab height accounts for the bar).
+    this._sideBar.show();
     this.activeTabId = tabId;
     this.updateTabBounds();
 
     // Update the window title to match the tab title
     this._baseWindow.setTitle(tab.title || "Blueberry Browser");
 
+    this.notifySlot();
+
     return true;
+  }
+
+  /** Tell the topbar which occupant now holds the content slot. */
+  private notifySlot(): void {
+    const slot =
+      this.activeView === "garden"
+        ? ({ kind: "garden" } as const)
+        : ({ kind: "tab", tabId: this.activeView } as const);
+    this._topBar.view.webContents.send("slot-changed", slot);
+  }
+
+  /** When `wc` gains focus, ask the topbar to collapse its URL bar. */
+  private attachFocusCollapse(wc: Electron.WebContents): void {
+    wc.on("focus", () => {
+      this._topBar.view.webContents.send("collapse-address-bar");
+    });
   }
 
   getTab(tabId: string): Tab | null {
