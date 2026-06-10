@@ -58,21 +58,29 @@ export class TabSidebar {
   }
 
   updateBounds(): void {
+    // Only the visible rail needs a bounds update; a hidden rail is toggled off
+    // via setVisible (see show/hide) and keeps its last bounds for the next show.
     if (this.isVisible) {
       this.setupBounds();
-    } else {
-      this.webContentsView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     }
   }
 
   show(): void {
     this.isVisible = true;
+    // Re-attach to the view tree (hide() removes it) and lay it out.
+    this.baseWindow.contentView.addChildView(this.webContentsView);
     this.setupBounds();
+    this.webContentsView.setVisible(true);
   }
 
   hide(): void {
     this.isVisible = false;
-    this.webContentsView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    // Remove the view from the window's view tree entirely. setVisible(false)
+    // + 0×0 bounds was NOT enough on macOS — the WebContentsView stayed painted
+    // (the rail visibly never collapsed). removeChildView guarantees it's gone;
+    // show() re-adds it. The webContents (and its rendered tab list) persists,
+    // so re-adding restores it instantly.
+    this.baseWindow.contentView.removeChildView(this.webContentsView);
   }
 
   getIsVisible(): boolean {

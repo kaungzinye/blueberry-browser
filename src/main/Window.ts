@@ -145,6 +145,10 @@ export class Window {
       tab.hide();
     }
 
+    // The new tab was just added on top — restore chrome to the top of the
+    // z-order so the top bar / rail keep receiving input.
+    this.bringChromeToFront();
+
     return tab;
   }
 
@@ -235,8 +239,9 @@ export class Window {
 
     tab.show();
     // Surface the bottom Command Bar in tab view (show before recomputing tab
-    // bounds so the tab height accounts for the bar).
-    this._sideBar.show();
+    // bounds so the tab height accounts for the bar). Pass the live rail width
+    // so a collapsed rail doesn't leave a dead gutter under the bar.
+    this._sideBar.show(this.railWidth);
     this.activeTabId = tabId;
     this.updateTabBounds();
 
@@ -323,6 +328,22 @@ export class Window {
     return this.railCollapsed ? 0 : LEFT_RAIL_WIDTH;
   }
 
+  /**
+   * Keep the chrome (top bar + left rail) above the content-slot views (garden,
+   * tabs) in the z-order. Re-adding a child view moves it to the top of the
+   * stack. This must run after any view is added — the chrome views are created
+   * before the content views, and each `createTab` adds its tab on top, so
+   * without this the chrome ends up underneath. On macOS an underneath top bar
+   * stops receiving mouse events (the rail toggle then appears frozen). The
+   * command bar stays below the chrome on purpose: it's content, not chrome.
+   */
+  private bringChromeToFront(): void {
+    this._baseWindow.contentView.addChildView(this._topBar.view);
+    if (!this.railCollapsed) {
+      this._baseWindow.contentView.addChildView(this._tabSidebar.view);
+    }
+  }
+
   /** Collapse or expand the left tab rail; re-lays-out all views. Returns the new collapsed state. */
   toggleRail(): boolean {
     this.railCollapsed = !this.railCollapsed;
@@ -332,6 +353,7 @@ export class Window {
       this._tabSidebar.show();
     }
     this.updateAllBounds();
+    this.bringChromeToFront();
     return this.railCollapsed;
   }
 
@@ -364,7 +386,7 @@ export class Window {
     this.updateTabBounds();
     this._topBar.updateBounds(railW);
     this._tabSidebar.updateBounds();
-    this._sideBar.updateBounds();
+    this._sideBar.updateBounds(railW);
     this._garden.updateBounds(railW);
   }
 

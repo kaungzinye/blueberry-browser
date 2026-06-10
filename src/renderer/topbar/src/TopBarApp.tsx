@@ -33,10 +33,15 @@ export const TopBarApp: React.FC = () => {
                 className={cn(
                     // Fixed-height bar pinned to the top; when the omnibox panel
                     // opens the view grows below this row (overflow stays visible).
-                    'relative flex h-12 shrink-0 items-center gap-1 app-region-drag bg-[#080d1a] text-[#e7ecf6] px-2',
-                    // When the rail is collapsed the bar spans to x=0, so reserve
-                    // space for the macOS traffic lights at the far left.
-                    railCollapsed && 'pl-20'
+                    // NOTE: use pr-2 + an explicit pl-* (never px-2 alongside a
+                    // conditional pl-*) — two padding-left utilities collide and
+                    // Tailwind's output order decides the winner, which left the
+                    // toggle button under the macOS traffic lights and unclickable.
+                    'relative flex h-12 shrink-0 items-center gap-1 app-region-drag bg-[#080d1a] text-[#e7ecf6] pr-2',
+                    // When the rail is collapsed the bar spans to window x=0, so
+                    // push the controls clear of the native traffic-light /
+                    // window-control zone at the far left (~x≤88). 8px otherwise.
+                    railCollapsed ? 'pl-[96px]' : 'pl-2'
                 )}
             >
                 <button

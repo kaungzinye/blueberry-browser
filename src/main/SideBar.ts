@@ -17,6 +17,8 @@ export class SideBar {
   private llmClient: LLMClient;
   private isVisible: boolean = false;
   private currentHeight: number = COMMAND_BAR_HEIGHT;
+  /** Live left-rail width — 0 when the rail is collapsed. */
+  private railWidth: number = LEFT_RAIL_WIDTH;
 
   constructor(baseWindow: BaseWindow) {
     this.baseWindow = baseWindow;
@@ -52,15 +54,18 @@ export class SideBar {
 
   private applyBounds(): void {
     const bounds = this.baseWindow.getBounds();
+    // Span from the live rail edge (0 when the rail is collapsed) so the
+    // command bar fills the full content width with no dead gutter.
     this.webContentsView.setBounds({
-      x: LEFT_RAIL_WIDTH,
+      x: this.railWidth,
       y: bounds.height - this.currentHeight,
-      width: Math.max(0, bounds.width - LEFT_RAIL_WIDTH),
+      width: Math.max(0, bounds.width - this.railWidth),
       height: this.currentHeight,
     });
   }
 
-  updateBounds(): void {
+  updateBounds(railWidth: number = LEFT_RAIL_WIDTH): void {
+    this.railWidth = railWidth;
     if (this.isVisible) {
       this.applyBounds();
     } else {
@@ -86,8 +91,9 @@ export class SideBar {
     return this.llmClient;
   }
 
-  show(): void {
+  show(railWidth: number = this.railWidth): void {
     this.isVisible = true;
+    this.railWidth = railWidth;
     this.applyBounds();
   }
 
