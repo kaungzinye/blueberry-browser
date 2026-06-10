@@ -205,6 +205,38 @@ export const getLedgerEntries = (state: GardenState): LedgerEntry[] =>
       "Quick command",
   }));
 
+/**
+ * Command Log entry (PRD stories 16–17): one row per Command with its exact
+ * tool/action trace. Derived, not stored — the log is a view over commands +
+ * telemetry, so it can never drift from what actually happened.
+ */
+export interface CommandLogEntry {
+  commandId: string;
+  text: string;
+  route: CommandRoute;
+  status: CommandStatus;
+  response?: string;
+  workRunTitle?: string;
+  trace: TelemetryEvent[];
+}
+
+export const getCommandLog = (state: GardenState): CommandLogEntry[] =>
+  state.commands.map((command) => ({
+    commandId: command.id,
+    text: command.text,
+    route: command.route,
+    status: command.status,
+    response: command.response,
+    workRunTitle: command.workRunId
+      ? state.workRuns.find((run) => run.id === command.workRunId)?.title
+      : undefined,
+    trace: command.workRunId
+      ? state.telemetry.filter(
+          (event) => event.workRunId === command.workRunId,
+        )
+      : [],
+  }));
+
 export type SubmitCommandResult = {
   state: GardenState;
   mainAgentId: string;

@@ -5,6 +5,7 @@ import {
   approveWorkRun,
   completeWorkRun,
   createInitialGardenState,
+  getCommandLog,
   getLedgerEntries,
   getReaderContent,
   getVisibleBerries,
@@ -119,6 +120,25 @@ describe("Garden command routing", () => {
       workRunId: next.workRuns[0].id,
     });
     expect(next.workRuns[0].status).toBe("planning");
+  });
+});
+
+describe("Command Log", () => {
+  it("lists every command with its tool/action trace, newest last", () => {
+    const { state: planned } = submitCommand(
+      createInitialGardenState(),
+      demoCommand
+    );
+    const running = approveWorkRun(planned, planned.workRuns[0].id);
+    const { state: withQuick } = submitCommand(running, "hello there");
+
+    const log = getCommandLog(withQuick);
+
+    expect(log).toHaveLength(2);
+    expect(log[0]).toMatchObject({ route: "work-run", text: demoCommand });
+    expect(log[0].trace.length).toBeGreaterThan(0);
+    expect(log[0].trace[0]).toMatchObject({ kind: "intent" });
+    expect(log[1]).toMatchObject({ route: "quick", trace: [] });
   });
 });
 

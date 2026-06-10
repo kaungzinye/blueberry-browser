@@ -13,7 +13,11 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import type { BerryKind, LedgerEntry } from "../domain/gardenDomain";
+import type {
+  BerryKind,
+  CommandLogEntry,
+  LedgerEntry,
+} from "../domain/gardenDomain";
 import type { Agent, Berry } from "../domain/gardenDomain";
 import type {
   MainAgentCycleScope,
@@ -74,6 +78,8 @@ interface GardenHudProps {
   allArtifacts: LedgerEntry[];
   onShowArtifactOnGarden: (berryId: string) => void;
   onOpenArtifact: (berryId: string) => void;
+  /** Global, secondary Command Log (PRD stories 16–17). */
+  commandLog: CommandLogEntry[];
 }
 
 const MINIMAP_WIDTH = 128;
@@ -232,13 +238,24 @@ const HudLeft: React.FC<{
   agent: Agent | undefined;
   viewRect: { left: number; top: number; width: number; height: number };
   toMini: (wx: number, wy: number) => { left: number; top: number };
-}> = ({ berries, agent, viewRect, toMini }) => (
+  onOpenLog: () => void;
+}> = ({ berries, agent, viewRect, toMini, onOpenLog }) => (
   <div
     className={`${PANEL} flex shrink-0 flex-row items-center gap-2 border-l-0 border-b-0 border-r border-t-0 px-3 py-3`}
     style={{ width: LEFT_SIDE_WIDTH }}
   >
     <Minimap berries={berries} viewRect={viewRect} toMini={toMini} />
     <AgentBadge agent={agent} />
+    <button
+      type="button"
+      onClick={onOpenLog}
+      className="flex h-[88px] flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-line/12 bg-surface-1/70 px-2 text-ink-faint transition-colors hover:border-accent/40 hover:text-ink"
+      title="Open Command Log"
+      aria-label="Open Command Log"
+    >
+      <FileText className="size-4" />
+      <span className={SECTION_LABEL}>Log</span>
+    </button>
   </div>
 );
 
@@ -730,6 +747,88 @@ const ArtifactsShelf: React.FC<{
 };
 
 /**
+ * Command Log overlay (PRD stories 16–17): all commands with their exact
+ * tool/action traces. Deliberately secondary — opened on demand, never the
+ * primary surface.
+ */
+const CommandLogPanel: React.FC<{
+  log: CommandLogEntry[];
+  onClose: () => void;
+}> = ({ log, onClose }) => (
+  <div
+    className={`${PANEL} hud-rise pointer-events-auto absolute inset-4 z-50 flex flex-col overflow-hidden rounded-2xl shadow-panel`}
+    aria-label="Command Log"
+  >
+    <div className="flex shrink-0 items-center justify-between border-b border-line/10 px-4 py-3">
+      <p className={SECTION_LABEL}>Command Log</p>
+      <button
+        type="button"
+        onClick={onClose}
+        className="rounded-lg border border-line/10 bg-white/[0.03] p-1 text-ink-faint transition-colors hover:border-accent/40 hover:text-ink"
+        aria-label="Close Command Log"
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+    <ScrollArea className="min-h-0 flex-1">
+      {log.length === 0 ? (
+        <p className="px-4 py-8 text-center text-xs text-ink-faint">
+          No commands yet.
+        </p>
+      ) : (
+        <ol className="flex flex-col gap-3 px-4 py-4">
+          {log.map((entry) => (
+            <li
+              key={entry.commandId}
+              className="rounded-xl border border-line/10 bg-white/[0.03] px-3.5 py-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <Badge
+                  variant={entry.status === "complete" ? "done" : "active"}
+                  size="xs"
+                >
+                  {entry.route}
+                </Badge>
+                {entry.workRunTitle && (
+                  <span className="truncate font-mono text-[10px] text-accent/70">
+                    {entry.workRunTitle}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-ink">
+                {entry.text || "(empty command)"}
+              </p>
+              {entry.response && (
+                <p className="mt-1 text-xs leading-relaxed text-accent-strong/85">
+                  {entry.response}
+                </p>
+              )}
+              {entry.trace.length > 0 && (
+                <ol className="mt-2 flex flex-col gap-1 border-t border-line/10 pt-2">
+                  {entry.trace.map((event) => (
+                    <li
+                      key={event.id}
+                      className="flex items-baseline gap-2 font-mono text-[10px]"
+                    >
+                      <span className="shrink-0 uppercase tracking-wide text-ink-faint">
+                        {event.kind}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-ink-muted">
+                        {event.label}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </ScrollArea>
+  </div>
+);
+
+/**
  * Routing affordances row — "answer quickly or run visibly?" for ambiguous
  * commands, and "run visibly instead" to upgrade a finished quick reply.
  */
@@ -838,6 +937,7 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     allArtifacts,
     onShowArtifactOnGarden,
     onOpenArtifact,
+    commandLog,
   } = props;
 
   const [chatExpanded, setChatExpanded] = useState(false);
@@ -845,6 +945,16 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
   const [cycleFlash, setCycleFlash] = useState(false);
   const [artifactsPanelExpanded, setArtifactsPanelExpanded] = useState(false);
   const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
+
+  useEffect(() => {
+    if (!logOpen) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setLogOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [logOpen]);
 
   useEffect(() => {
     if (!chatExpanded) return;
@@ -927,6 +1037,7 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
       agent={agent}
       viewRect={minimap.viewRect}
       toMini={minimap.toMini}
+      onOpenLog={() => setLogOpen(true)}
     />
   );
 
@@ -935,6 +1046,11 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
       className="pointer-events-none absolute inset-0 z-40 flex flex-col"
       aria-label="Garden HUD chrome"
     >
+      {/* Command Log overlay — secondary, ESC closes */}
+      {logOpen && (
+        <CommandLogPanel log={commandLog} onClose={() => setLogOpen(false)} />
+      )}
+
       {/* Artifacts fullscreen overlay — covers entire HUD, ESC closes */}
       {artifactsFullscreen && (
         <div className="pointer-events-auto absolute inset-4 z-50 flex flex-col overflow-hidden rounded-2xl shadow-panel hud-rise">

@@ -32,6 +32,7 @@ import {
   Berry,
   createInitialGardenState,
   GardenState,
+  getCommandLog,
   getLedgerEntries,
   getReaderContent,
   getVisibleBerries,
@@ -146,6 +147,7 @@ export const GardenApp: React.FC = () => {
   }, [selectedCommand?.response]);
   const visibleBerries = getVisibleBerries(state);
   const ledgerEntries = getLedgerEntries(state);
+  const commandLog = useMemo(() => getCommandLog(state), [state]);
 
   // All artifact berries (non-tab, across all work runs) for the Artifact Roster panel.
   const allArtifacts = useMemo(
@@ -571,6 +573,7 @@ export const GardenApp: React.FC = () => {
         onSelectArtifact={handleFocusArtifact}
         onOpenLedger={() => setLedgerOpen(true)}
         allArtifacts={allArtifacts}
+        commandLog={commandLog}
         onShowArtifactOnGarden={handleShowOnGarden}
         onOpenArtifact={handleFocusArtifact}
       />
