@@ -87,6 +87,46 @@
   flex-direction: column;
 }
 
+/* ── Command Bar motion — match the garden HUD's curve ── */
+:root {
+  --hud-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes sheet-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hud-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sheet-rise {
+  animation: sheet-rise 0.34s var(--hud-ease) both;
+}
+
+.hud-fade {
+  animation: hud-fade 0.25s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-rise,
+  .hud-fade {
+    animation: none;
+  }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

@@ -39,6 +39,93 @@ body {
   background: rgb(var(--garden-mid));
 }
 
+/* ── HUD motion language ─────────────────────────────────────────────────
+ * One curve for all chrome: panels rise from their anchor edge, soft and
+ * decelerating. Never mount a HUD slab without one of these. */
+:root {
+  --hud-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes hud-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hud-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hud-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hud-rise {
+  animation: hud-rise 0.32s var(--hud-ease) both;
+}
+
+.hud-drop {
+  animation: hud-drop 0.32s var(--hud-ease) both;
+}
+
+.hud-fade {
+  animation: hud-fade 0.25s ease-out both;
+}
+
+.sheet-rise {
+  animation: sheet-rise 0.38s var(--hud-ease) both;
+}
+
+/* Smooth size/spacing changes on chrome that grows in place. */
+.hud-smooth {
+  transition:
+    width 0.3s var(--hud-ease),
+    max-width 0.3s var(--hud-ease),
+    height 0.3s var(--hud-ease),
+    padding 0.3s var(--hud-ease),
+    opacity 0.25s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-rise,
+  .hud-drop,
+  .hud-fade,
+  .sheet-rise {
+    animation: none;
+  }
+  .hud-smooth {
+    transition: none;
+  }
+}
+
 /* Telemetry: source -> destination data-flow along an SVG path. */
 @keyframes data-flow {
   to {

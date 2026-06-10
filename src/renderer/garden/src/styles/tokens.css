@@ -9,16 +9,16 @@
  */
 
 :root {
-  /* Canvas — flat deep blue. */
-  --garden-base: 14 26 51; /* #0e1a33 */
-  --garden-mid: 14 26 51; /* flat (no gradient) */
-  --garden-core: 14 26 51;
+  /* Canvas — flat midnight navy. */
+  --garden-base: 6 11 26; /* #060b1a */
+  --garden-mid: 6 11 26; /* flat (no gradient) */
+  --garden-core: 6 11 26;
 
-  /* Surfaces — solid, blue-grey, stepped above the canvas. */
-  --surface-0: 20 31 58; /* #141f3a base chrome */
-  --surface-1: 24 35 63; /* #18233f panels */
-  --surface-2: 31 44 77; /* #1f2c4d raised */
-  --surface-3: 40 56 97; /* #283861 hover / controls */
+  /* Surfaces — solid, deep navy, stepped above the canvas. */
+  --surface-0: 9 15 33; /* #090f21 base chrome */
+  --surface-1: 12 20 42; /* #0c142a panels */
+  --surface-2: 17 27 56; /* #111b38 raised */
+  --surface-3: 24 38 76; /* #18264c hover / controls */
 
   /* Text. */
   --ink: 231 236 246; /* #e7ecf6 */

@@ -342,7 +342,7 @@ const MainAgentRosterPanel: React.FC<{
       <button
         type="button"
         onClick={onToggleExpanded}
-        className={`${PANEL} w-full rounded-xl px-3 py-2.5 text-left transition-all ${
+        className={`${PANEL} hud-fade w-full rounded-xl px-3 py-2.5 text-left transition-all duration-300 ${
           cycleFlash ? "ring-1 ring-accent/60" : ""
         }`}
         aria-label="Expand Main Agent roster"
@@ -374,7 +374,7 @@ const MainAgentRosterPanel: React.FC<{
 
   return (
     <div
-      className={`${PANEL} flex max-h-full min-h-0 w-full flex-col rounded-2xl shadow-panel`}
+      className={`${PANEL} hud-rise flex max-h-full min-h-0 w-full flex-col rounded-2xl shadow-panel`}
       aria-label="Main Agent roster"
     >
       <div className="flex shrink-0 flex-col gap-2.5 border-b border-line/10 px-3 py-3">
@@ -737,16 +737,18 @@ const HudChatColumn: React.FC<{
   onSubmit,
   expandButton,
 }) => (
-  <div className="pointer-events-none flex w-full max-w-2xl flex-col justify-end gap-2 px-4 pb-3 pt-2">
+  // Same max-w-3xl column as the expanded chat sheet, so the input keeps one
+  // width and one axis across collapsed/expanded states — no resize jump.
+  <div className="pointer-events-none flex w-full max-w-3xl flex-col justify-end gap-2 px-4 pb-3 pt-2 hud-rise">
     <div className="pointer-events-auto flex justify-center">{expandButton}</div>
     {latestAgentReply && (
-      <div className="pointer-events-auto relative max-h-[5.5rem] px-1 text-center">
+      <div className="pointer-events-auto relative max-h-[5.5rem] px-1 text-center hud-fade">
         <p className="line-clamp-4 text-sm leading-relaxed text-accent-strong/85">
           {latestAgentReply}
         </p>
       </div>
     )}
-    <div className="pointer-events-auto mx-auto w-full max-w-xl">
+    <div className="pointer-events-auto w-full">
       <CommandInput
         commandText={commandText}
         onCommandTextChange={onCommandTextChange}
@@ -886,7 +888,7 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     >
       {/* Artifacts fullscreen overlay — covers entire HUD, ESC closes */}
       {artifactsFullscreen && (
-        <div className="pointer-events-auto absolute inset-4 z-50 flex flex-col overflow-hidden rounded-2xl shadow-panel">
+        <div className="pointer-events-auto absolute inset-4 z-50 flex flex-col overflow-hidden rounded-2xl shadow-panel hud-rise">
           <ArtifactRosterPanel
             artifacts={allArtifacts}
             onShowOnGarden={onShowArtifactOnGarden}
@@ -938,7 +940,7 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
         {/* Artifacts panel overlay — floats above bottom bar from bottom-right */}
         {artifactsPanelExpanded && !artifactsFullscreen && (
           <div
-            className="pointer-events-none absolute bottom-2 right-3 z-40"
+            className="pointer-events-none absolute bottom-2 right-3 z-40 hud-rise"
             style={{ width: LEFT_SIDE_WIDTH }}
           >
             <ArtifactRosterPanel
@@ -971,17 +973,18 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
 
         {chatExpanded && (
           <div
-            className="pointer-events-none absolute inset-0 z-50 flex flex-col"
-            style={{ left: LEFT_SIDE_WIDTH, right: GARDEN_RIGHT_HUD_WIDTH }}
+            className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center"
             aria-label="Expanded chat"
           >
-            <div className="app-region-no-drag pointer-events-auto flex shrink-0 justify-center py-3">
+            <div className="app-region-no-drag pointer-events-auto flex shrink-0 justify-center py-3 hud-drop">
               {collapseButton}
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col justify-end">
+            {/* Centered sheet — symmetric width regardless of side-panel sizes,
+                so expanding never shifts the chat off-axis. */}
+            <div className="flex min-h-0 w-full max-w-3xl flex-1 flex-col justify-end px-4">
               <div
-                className={`${PANEL} flex max-h-full min-h-0 flex-col rounded-b-none rounded-t-3xl border-b-0 shadow-sheet`}
+                className={`${PANEL} sheet-rise flex max-h-full min-h-0 flex-col rounded-b-none rounded-t-3xl border-b-0 shadow-sheet`}
               >
                 <ScrollArea className="min-h-0 flex-1">
                   <div className="space-y-6 px-8 py-6">

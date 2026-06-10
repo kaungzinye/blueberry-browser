@@ -192,7 +192,7 @@ export const CommandBar: React.FC = () => {
   return (
     <div
       className="app-region-no-drag flex h-full flex-col overflow-hidden border-t border-white/[0.08]"
-      style={{ background: "#0e1119" }}
+      style={{ background: "#090f21" }}
     >
       {/* Blocking Approval gate for the live tab the agent is driving */}
       {pendingApproval && (
@@ -203,18 +203,24 @@ export const CommandBar: React.FC = () => {
         />
       )}
 
-      {/* Expanded chat history */}
-      {expanded && <ChatHistory messages={messages} isLoading={isLoading} />}
+      {/* Expanded chat history — centered on the same column as the input,
+          rising in so the height change reads as one motion. */}
+      {expanded && (
+        <div className="sheet-rise mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
+          <ChatHistory messages={messages} isLoading={isLoading} />
+        </div>
+      )}
 
       {/* Collapsed preview — latest agent reply */}
       {!expanded && latestReply && (
-        <div className="shrink-0 px-4 pt-1.5">
+        <div className="hud-fade mx-auto w-full max-w-3xl shrink-0 px-4 pt-1.5">
           <p className="truncate text-xs text-[#a8c0ff]/50">{latestReply}</p>
         </div>
       )}
 
-      {/* Always-visible bar: input + expand toggle */}
-      <div className="flex shrink-0 items-center gap-2 px-3 py-2">
+      {/* Always-visible bar: input + expand toggle, on one fixed center column
+          so expanding never shifts or widens the input */}
+      <div className="mx-auto flex w-full max-w-3xl shrink-0 items-center gap-2 px-3 py-2">
         <button
           type="button"
           onClick={toggleExpand}

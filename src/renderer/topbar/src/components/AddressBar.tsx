@@ -232,7 +232,7 @@ export const AddressBar: React.FC = () => {
 
                     {/* Suggestions panel — overflows below the bar into the grown view area. */}
                     {showSuggestions && (
-                        <ul className="absolute left-0 right-0 top-full mt-1 z-50 overflow-hidden rounded-lg bg-[#0e1422] ring-1 ring-white/10 shadow-2xl">
+                        <ul className="omnibox-drop absolute left-0 right-0 top-full mt-1 z-50 overflow-hidden rounded-lg bg-[#0a1124] ring-1 ring-white/10 shadow-2xl">
                             {suggestions.map((s, i) => {
                                 const Icon =
                                     s.kind === 'garden'
