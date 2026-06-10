@@ -32,6 +32,9 @@ interface TopBarAPI {
 
   // Garden
   showGarden: () => Promise<boolean>;
+  switchGarden: (
+    name: string
+  ) => Promise<{ active: string; gardens: string[] }>;
 
   // Grow/shrink the top bar to host the omnibox suggestion panel.
   setAddressExpanded: (height: number) => Promise<void>;

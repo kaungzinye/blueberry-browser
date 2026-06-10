@@ -1,5 +1,5 @@
-/** The single Garden that exists for now. Mirrors AgentRunner's default. */
-export const DEFAULT_GARDEN_NAME = "Default";
+/** The default project Garden. Mirrors main's GARDEN_NAME. */
+export const DEFAULT_GARDEN_NAME = "Blueberry Sales Leads";
 
 /** The Garden address shown in the URL bar when the Garden holds the content slot. */
 export function gardenAddress(name: string = DEFAULT_GARDEN_NAME): string {
@@ -117,7 +117,11 @@ export function resolveAddressInput(input: string, _slot: Slot): AddressIntent {
   }
 
   if (trimmed.startsWith("blueberry://")) {
-    return { kind: "garden", name: DEFAULT_GARDEN_NAME };
+    // Multi-garden: honor the typed name (blueberry://garden/<name>);
+    // anything shorter falls back to the default project Garden.
+    const match = trimmed.match(/^blueberry:\/\/garden\/(.+)$/);
+    const name = match ? decodeURIComponent(match[1]).trim() : "";
+    return { kind: "garden", name: name || DEFAULT_GARDEN_NAME };
   }
 
   const url = toWebUrl(trimmed);

@@ -39,6 +39,10 @@ const topBarAPI = {
   // Garden
   showGarden: () => electronAPI.ipcRenderer.invoke("garden-show"),
 
+  // Switch the active Garden by name (multi-garden, PRD 18-22).
+  switchGarden: (name: string) =>
+    electronAPI.ipcRenderer.invoke("garden-switch", name),
+
   // Grow/shrink the top bar to host the omnibox suggestion panel (px below the bar).
   setAddressExpanded: (height: number) =>
     electronAPI.ipcRenderer.invoke("set-address-expanded", height),

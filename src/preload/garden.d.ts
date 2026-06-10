@@ -99,6 +99,15 @@ declare global {
   interface GardenSnapshot {
     state: unknown;
     pendingApproval: PendingApproval | null;
+    /** The active Garden's name (multi-garden, PRD 18-22). */
+    gardenName: string;
+    /** Every Garden, Scratch included, for the switcher UI. */
+    gardens: string[];
+  }
+
+  interface GardenDirectory {
+    active: string;
+    gardens: string[];
   }
 
   interface IntentResultFeedback {
@@ -114,6 +123,10 @@ declare global {
     getTabBerries: () => Promise<TabBerrySnapshot[]>;
     showGarden: () => Promise<boolean>;
     hasApiKey: () => Promise<boolean>;
+    // Garden directory (multi-garden + Scratch, PRD 18-22)
+    listGardens: () => Promise<GardenDirectory>;
+    switchGarden: (name: string) => Promise<GardenDirectory>;
+    promoteBerry: (berryId: string, toGarden: string) => Promise<boolean>;
     // Main-owned state (ADR-0003)
     getState: () => Promise<GardenSnapshot>;
     dispatch: (intent: unknown) => Promise<IntentResultFeedback>;

@@ -10,12 +10,18 @@ import { AgentRunner } from "../AgentRunner";
 import type { GardenIntent, IntentResult } from "./intents";
 import type { GardenSnapshot } from "./channels";
 import { AUTO_ADVANCE_MS } from "../../renderer/garden/src/domain/gardenDomain";
+import {
+  DEFAULT_GARDENS,
+  promoteBerry,
+} from "../../renderer/garden/src/domain/gardenDirectory";
 
-/** The one Garden that exists for now (matches the renderer's artifact root). */
+/** The default project Garden (matches the renderer's artifact root). */
 export const GARDEN_NAME = "Blueberry Sales Leads";
 
 export class GardenController {
-  private readonly store: GardenStore;
+  /** gardenName → store; every Garden persists to its own garden.json. */
+  private readonly stores = new Map<string, GardenStore>();
+  private activeGardenName: string = GARDEN_NAME;
   /** agentId → live session. */
   private readonly sessions = new Map<string, AgentRunner>();
   /** workRunId → scripted-demo advance timer. */
@@ -25,7 +31,63 @@ export class GardenController {
   >();
 
   constructor(private readonly window: Window) {
-    this.store = new GardenStore(GARDEN_NAME, () => this.broadcastTargets());
+    for (const name of DEFAULT_GARDENS) {
+      this.stores.set(name, this.createStore(name));
+    }
+  }
+
+  private createStore(name: string): GardenStore {
+    return new GardenStore(
+      name,
+      () => this.broadcastTargets(),
+      () => [...this.stores.keys()],
+    );
+  }
+
+  /** The active Garden's store — every per-garden op routes through this. */
+  private get store(): GardenStore {
+    const store = this.stores.get(this.activeGardenName);
+    if (store) return store;
+    // Defensive: never leave the controller without an active store.
+    const fallback = this.createStore(this.activeGardenName);
+    this.stores.set(this.activeGardenName, fallback);
+    return fallback;
+  }
+
+  // ── Garden directory (PRD stories 18–22) ────────────────────────────────────
+
+  listGardens(): { active: string; gardens: string[] } {
+    return { active: this.activeGardenName, gardens: [...this.stores.keys()] };
+  }
+
+  /** Switch the active Garden (creating it on first use) and broadcast it. */
+  switchGarden(name: string): void {
+    if (!this.stores.has(name)) {
+      const store = this.createStore(name);
+      this.stores.set(name, store);
+      void store.load();
+    }
+    this.activeGardenName = name;
+    this.store.broadcast();
+  }
+
+  /**
+   * Promote a Berry from the active Garden into another (story 22) — e.g. a
+   * useful Scratch page into a project Garden.
+   */
+  promoteBerry(berryId: string, toGarden: string): void {
+    if (toGarden === this.activeGardenName) return;
+    if (!this.stores.has(toGarden)) {
+      this.stores.set(toGarden, this.createStore(toGarden));
+    }
+    const target = this.stores.get(toGarden)!;
+    const moved = promoteBerry(
+      this.store.getState(),
+      target.getState(),
+      berryId,
+    );
+    target.setState(moved.to);
+    this.store.setState(moved.from);
   }
 
   /** Garden canvas + Command Bar renderers — both are state mirrors. */
@@ -37,7 +99,7 @@ export class GardenController {
   }
 
   async load(): Promise<void> {
-    await this.store.load();
+    await Promise.all([...this.stores.values()].map((store) => store.load()));
   }
 
   getSnapshot(): GardenSnapshot {
@@ -120,7 +182,7 @@ export class GardenController {
           commandId: command.id,
           agentId: command.mainAgentId,
           workRunId,
-          gardenName: GARDEN_NAME,
+          gardenName: this.activeGardenName,
         })
         .catch((err) =>
           console.error("[GardenController] session error:", err),

@@ -93,6 +93,13 @@ interface GardenHudProps {
   /** Every Berry (tabs + artifacts) for the ⌘K Berry switcher (PRD story 9). */
   switcherEntries: LedgerEntry[];
   onActivateBerry: (berryId: string) => void;
+  /** Multi-garden directory (PRD stories 18–22). */
+  gardenName: string;
+  gardens: string[];
+  onSwitchGarden: (name: string) => void;
+  /** Promote the selected Berry into this garden (Scratch → project). */
+  promoteTarget?: string;
+  onPromoteSelected?: () => void;
 }
 
 const MINIMAP_WIDTH = 128;
@@ -1237,6 +1244,11 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     commandLog,
     switcherEntries,
     onActivateBerry,
+    gardenName,
+    gardens,
+    onSwitchGarden,
+    promoteTarget,
+    onPromoteSelected,
   } = props;
 
   const [chatExpanded, setChatExpanded] = useState(false);
@@ -1403,6 +1415,34 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
       )}
 
       <div className="relative min-h-0 flex-1" aria-label="Garden view band">
+        {/* Garden directory — active garden + switcher chips (PRD 18-22) */}
+        <div className="pointer-events-auto absolute left-3 top-3 z-40 flex items-center gap-1.5 hud-drop">
+          {gardens.map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => name !== gardenName && onSwitchGarden(name)}
+              className={`${PANEL} rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-wide transition-colors ${
+                name === gardenName
+                  ? "border-accent/50 text-accent"
+                  : "text-ink-faint hover:text-ink"
+              }`}
+              title={`blueberry://garden/${name}`}
+            >
+              {name}
+            </button>
+          ))}
+          {promoteTarget && onPromoteSelected && (
+            <button
+              type="button"
+              onClick={onPromoteSelected}
+              className={`${PANEL} hud-fade rounded-full border-accent/40 px-3 py-1 font-mono text-[10px] uppercase tracking-wide text-accent transition-colors hover:bg-accent/10`}
+              title={`Move the selected Berry into ${promoteTarget}`}
+            >
+              Promote → {promoteTarget}
+            </button>
+          )}
+        </div>
         {/* Agents right column — hidden rail (hover / cycle) or expanded roster */}
         {rightPanelExpanded ? (
           <div

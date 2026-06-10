@@ -52,6 +52,9 @@ import {
 interface GardenSnapshot {
   state: GardenState;
   pendingApproval: PendingApproval | null;
+  /** Active Garden + directory (multi-garden, PRD 18-22). */
+  gardenName: string;
+  gardens: string[];
 }
 interface PendingApproval {
   id: string;
@@ -100,6 +103,9 @@ export const GardenApp: React.FC = () => {
     nonce: number;
   } | null>(null);
   const [followAgent, setFollowAgent] = useState(false);
+  // Multi-garden directory (PRD 18-22), mirrored from the snapshot envelope.
+  const [gardenName, setGardenName] = useState("Blueberry Sales Leads");
+  const [gardens, setGardens] = useState<string[]>([]);
   const [viewport, setViewport] = useState<ViewportTransform>({
     panX: 0,
     panY: 0,
@@ -214,6 +220,8 @@ export const GardenApp: React.FC = () => {
         if (!mounted || !snapshot) return;
         setState(snapshot.state as GardenState);
         setPendingApproval(snapshot.pendingApproval);
+        setGardenName(snapshot.gardenName);
+        setGardens(snapshot.gardens);
         void seedRoster(snapshot as GardenSnapshot);
       })
       .catch(() => {});
@@ -222,6 +230,8 @@ export const GardenApp: React.FC = () => {
       const snap = snapshot as GardenSnapshot;
       setState(snap.state);
       setPendingApproval(snap.pendingApproval);
+      setGardenName(snap.gardenName);
+      setGardens(snap.gardens);
     });
 
     return () => {
@@ -549,6 +559,24 @@ export const GardenApp: React.FC = () => {
     setLedgerOpen(false);
   };
 
+  const handleSwitchGarden = (name: string): void => {
+    setSelectedBerryId(null);
+    setReaderBerryId(null);
+    void window.gardenAPI?.switchGarden?.(name);
+  };
+
+  // Promote a selected Scratch Berry into the first project garden (story 22).
+  const promoteTarget =
+    gardenName === "Scratch" && selectedBerryId
+      ? gardens.find((name) => name !== "Scratch")
+      : undefined;
+
+  const handlePromoteSelected = (): void => {
+    if (!selectedBerryId || !promoteTarget) return;
+    void window.gardenAPI?.promoteBerry?.(selectedBerryId, promoteTarget);
+    setSelectedBerryId(null);
+  };
+
   // Berry switcher activation (⌘K): tabs enter the live tab; artifacts focus
   // on the canvas (reports open the reader).
   const handleActivateBerry = (berryId: string): void => {
@@ -663,6 +691,11 @@ export const GardenApp: React.FC = () => {
         commandLog={commandLog}
         switcherEntries={ledgerEntries}
         onActivateBerry={handleActivateBerry}
+        gardenName={gardenName}
+        gardens={gardens}
+        onSwitchGarden={handleSwitchGarden}
+        promoteTarget={promoteTarget}
+        onPromoteSelected={promoteTarget ? handlePromoteSelected : undefined}
         onShowArtifactOnGarden={handleShowOnGarden}
         onOpenArtifact={handleFocusArtifact}
       />

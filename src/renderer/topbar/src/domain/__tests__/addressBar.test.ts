@@ -9,21 +9,23 @@ const gardenSlot = { kind: "garden" } as const;
 const tabSlot = { kind: "tab", tabId: "tab-1" } as const;
 
 describe("resolveAddressInput", () => {
-  it("routes blueberry://garden/Default to a garden intent regardless of slot", () => {
-    expect(resolveAddressInput("blueberry://garden/Default", tabSlot)).toEqual({
+  it("routes blueberry://garden/<name> to that garden regardless of slot", () => {
+    expect(resolveAddressInput("blueberry://garden/Scratch", tabSlot)).toEqual({
       kind: "garden",
-      name: "Default",
+      name: "Scratch",
     });
   });
 
-  it("leniently resolves any blueberry:// address to the single Default garden", () => {
-    expect(resolveAddressInput("blueberry://garden/whatever", gardenSlot)).toEqual({
+  it("keeps the typed garden name and defaults a bare blueberry:// address", () => {
+    expect(
+      resolveAddressInput("blueberry://garden/whatever", gardenSlot)
+    ).toEqual({
       kind: "garden",
-      name: "Default",
+      name: "whatever",
     });
     expect(resolveAddressInput("blueberry://garden", tabSlot)).toEqual({
       kind: "garden",
-      name: "Default",
+      name: "Blueberry Sales Leads",
     });
   });
 
@@ -104,8 +106,8 @@ describe("buildSuggestions", () => {
       id: "primary",
       kind: "garden",
       title: "Open Garden",
-      subtitle: "blueberry://garden/Default",
-      intent: { kind: "garden", name: "Default" },
+      subtitle: "blueberry://garden/Blueberry Sales Leads",
+      intent: { kind: "garden", name: "Blueberry Sales Leads" },
     });
   });
 
@@ -137,6 +139,6 @@ describe("buildSuggestions", () => {
 
 describe("gardenAddress", () => {
   it("renders the default garden address shown in the URL bar", () => {
-    expect(gardenAddress()).toBe("blueberry://garden/Default");
+    expect(gardenAddress()).toBe("blueberry://garden/Blueberry Sales Leads");
   });
 });

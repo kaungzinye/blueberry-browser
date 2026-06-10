@@ -96,6 +96,9 @@ export const AddressBar: React.FC = () => {
     const dispatchIntent = (intent: AddressIntent) => {
         switch (intent.kind) {
             case 'garden':
+                // Multi-garden: route the address's garden name to main (it
+                // creates the garden on first use), then show the canvas.
+                void window.topBarAPI?.switchGarden?.(intent.name)
                 showGarden()
                 break
             case 'navigate-tab':

@@ -38,4 +38,8 @@ export interface PendingApproval {
 export interface GardenSnapshot {
   state: GardenState;
   pendingApproval: PendingApproval | null;
+  /** The active Garden's name (multi-garden, PRD stories 18–22). */
+  gardenName: string;
+  /** Every Garden, Scratch included, for the switcher UI. */
+  gardens: string[];
 }

@@ -309,6 +309,24 @@ export class EventManager {
       return true;
     });
 
+    // ── Garden directory (multi-garden + Scratch, PRD 18-22) ───────────────
+    ipcMain.handle("garden-list", () =>
+      this.mainWindow.gardenController.listGardens(),
+    );
+
+    ipcMain.handle("garden-switch", (_, name: string) => {
+      this.mainWindow.gardenController.switchGarden(name);
+      return this.mainWindow.gardenController.listGardens();
+    });
+
+    ipcMain.handle(
+      "garden-promote-berry",
+      (_, berryId: string, toGarden: string) => {
+        this.mainWindow.gardenController.promoteBerry(berryId, toGarden);
+        return true;
+      },
+    );
+
     // Grow/shrink the top bar to host the omnibox suggestion panel.
     ipcMain.handle("set-address-expanded", (_, height: number) => {
       this.mainWindow.topBar.setOverlayHeight(height);

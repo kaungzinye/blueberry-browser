@@ -26,6 +26,13 @@ const gardenAPI = {
     >,
   showGarden: () => electronAPI.ipcRenderer.invoke("garden-show"),
 
+  // ── Garden directory (multi-garden + Scratch, PRD 18-22) ─────────────────
+  listGardens: () => electronAPI.ipcRenderer.invoke("garden-list"),
+  switchGarden: (name: string) =>
+    electronAPI.ipcRenderer.invoke("garden-switch", name),
+  promoteBerry: (berryId: string, toGarden: string) =>
+    electronAPI.ipcRenderer.invoke("garden-promote-berry", berryId, toGarden),
+
   /** Returns true when an API key is configured in .env. */
   hasApiKey: (): Promise<boolean> =>
     electronAPI.ipcRenderer.invoke("garden-has-api-key"),

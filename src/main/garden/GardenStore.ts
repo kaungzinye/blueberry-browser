@@ -42,12 +42,19 @@ export class GardenStore {
   constructor(
     private readonly gardenName: string,
     private readonly getTargets: () => WebContents[],
+    /** All garden names for the switcher UI (multi-garden envelope). */
+    private readonly getGardens: () => string[] = () => [gardenName],
   ) {}
 
   // ── Reads ────────────────────────────────────────────────────────────────
 
   snapshot(): GardenSnapshot {
-    return { state: this.state, pendingApproval: this.pendingApproval };
+    return {
+      state: this.state,
+      pendingApproval: this.pendingApproval,
+      gardenName: this.gardenName,
+      gardens: this.getGardens(),
+    };
   }
 
   getState(): GardenState {
