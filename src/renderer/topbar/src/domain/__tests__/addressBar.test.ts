@@ -18,14 +18,14 @@ describe("resolveAddressInput", () => {
 
   it("keeps the typed garden name and defaults a bare blueberry:// address", () => {
     expect(
-      resolveAddressInput("blueberry://garden/whatever", gardenSlot)
+      resolveAddressInput("blueberry://garden/whatever", gardenSlot),
     ).toEqual({
       kind: "garden",
       name: "whatever",
     });
     expect(resolveAddressInput("blueberry://garden", tabSlot)).toEqual({
       kind: "garden",
-      name: "Blueberry Sales Leads",
+      name: "Default",
     });
   });
 
@@ -76,7 +76,11 @@ describe("buildSuggestions", () => {
       kind: "primary",
       title: "example.com",
       subtitle: "https://example.com",
-      intent: { kind: "navigate-tab", tabId: "tab-1", url: "https://example.com" },
+      intent: {
+        kind: "navigate-tab",
+        tabId: "tab-1",
+        url: "https://example.com",
+      },
     });
   });
 
@@ -106,8 +110,8 @@ describe("buildSuggestions", () => {
       id: "primary",
       kind: "garden",
       title: "Open Garden",
-      subtitle: "blueberry://garden/Blueberry Sales Leads",
-      intent: { kind: "garden", name: "Blueberry Sales Leads" },
+      subtitle: "blueberry://garden/Default",
+      intent: { kind: "garden", name: "Default" },
     });
   });
 
@@ -116,7 +120,11 @@ describe("buildSuggestions", () => {
       slot: tabSlot,
       tabs: [
         { id: "tab-1", title: "GitHub", url: "https://github.com" },
-        { id: "tab-2", title: "Hacker News", url: "https://news.ycombinator.com" },
+        {
+          id: "tab-2",
+          title: "Hacker News",
+          url: "https://news.ycombinator.com",
+        },
       ],
     };
 
@@ -131,14 +139,14 @@ describe("buildSuggestions", () => {
     });
     expect(
       suggestions.some(
-        (s) => s.intent.kind === "switch-tab" && s.intent.tabId === "tab-2"
-      )
+        (s) => s.intent.kind === "switch-tab" && s.intent.tabId === "tab-2",
+      ),
     ).toBe(false);
   });
 });
 
 describe("gardenAddress", () => {
   it("renders the default garden address shown in the URL bar", () => {
-    expect(gardenAddress()).toBe("blueberry://garden/Blueberry Sales Leads");
+    expect(gardenAddress()).toBe("blueberry://garden/Default");
   });
 });

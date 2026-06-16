@@ -1,5 +1,6 @@
 import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
+import { hasLLMApiKey } from "./llmConfig";
 import type { GardenIntent } from "./garden/intents";
 import {
   GARDEN_DISPATCH_CHANNEL,
@@ -45,6 +46,22 @@ export class EventManager {
       const newTab = this.mainWindow.createTab(url);
       return { id: newTab.id, title: newTab.title, url: newTab.url };
     });
+
+    // Blank new tab that prompts a search/URL in the address bar (Arc-style).
+    ipcMain.handle("new-tab", () => {
+      const newTab = this.mainWindow.openNewTab();
+      return { id: newTab.id, title: newTab.title, url: newTab.url };
+    });
+
+    // Tab switcher — the focused overlay drives the live keys (Arc-style).
+    ipcMain.on("switcher-cycle", (_, direction: 1 | -1) =>
+      this.mainWindow.cycleTabSwitcher(direction),
+    );
+    ipcMain.on("switcher-commit", () => this.mainWindow.commitTabSwitcher());
+    ipcMain.on("switcher-cancel", () => this.mainWindow.cancelTabSwitcher());
+    ipcMain.on("switcher-pick", (_, tabId: string) =>
+      this.mainWindow.pickTabFromSwitcher(tabId),
+    );
 
     // Close tab
     ipcMain.handle("close-tab", (_, id: string) => {
@@ -239,10 +256,7 @@ export class EventManager {
   private handleAgentEvents(): void {
     // Check whether a real API key is configured
     ipcMain.handle("garden-has-api-key", () => {
-      const provider = process.env.LLM_PROVIDER?.toLowerCase() ?? "anthropic";
-      return provider === "openai"
-        ? Boolean(process.env.OPENAI_API_KEY)
-        : Boolean(process.env.ANTHROPIC_API_KEY);
+      return hasLLMApiKey();
     });
 
     // ── Main-owned Garden state (ADR-0003) ─────────────────────────────────
@@ -318,6 +332,19 @@ export class EventManager {
       this.mainWindow.gardenController.switchGarden(name);
       return this.mainWindow.gardenController.listGardens();
     });
+
+    // Garden CRUD (multi-garden directory). Each returns the fresh directory.
+    ipcMain.handle("garden-create", (_, name: string) =>
+      this.mainWindow.gardenController.createGarden(name),
+    );
+
+    ipcMain.handle("garden-rename", (_, from: string, to: string) =>
+      this.mainWindow.gardenController.renameGarden(from, to),
+    );
+
+    ipcMain.handle("garden-delete", (_, name: string) =>
+      this.mainWindow.gardenController.deleteGarden(name),
+    );
 
     ipcMain.handle(
       "garden-promote-berry",

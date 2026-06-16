@@ -1,4 +1,5 @@
 import { NativeImage, WebContentsView } from "electron";
+import { NEW_TAB_BACKGROUND_COLOR } from "./newTab";
 
 export class Tab {
   private webContentsView: WebContentsView;
@@ -23,6 +24,7 @@ export class Tab {
         webSecurity: true,
       },
     });
+    this.webContentsView.setBackgroundColor(NEW_TAB_BACKGROUND_COLOR);
 
     // Set up event listeners
     this.setupEventListeners();

@@ -25,6 +25,22 @@ export class AppMenu {
             click: () => this.handleCloseTab(),
           },
           { type: "separator" },
+          // Arc-style hold-Ctrl tab switcher. Driven from the menu (not a
+          // per-view before-input handler) so the opening chord fires no matter
+          // which WebContentsView — or none — holds DOM focus. Once open, the
+          // focused top-bar overlay owns the live keys (advance / Ctrl-release
+          // commit / Esc) as reliable DOM events.
+          {
+            label: "Next Tab",
+            accelerator: "Ctrl+Tab",
+            click: () => this.mainWindow.cycleTabSwitcher(1),
+          },
+          {
+            label: "Previous Tab",
+            accelerator: "Ctrl+Shift+Tab",
+            click: () => this.mainWindow.cycleTabSwitcher(-1),
+          },
+          { type: "separator" },
           {
             label: "Quit",
             accelerator: process.platform === "darwin" ? "Cmd+Q" : "Ctrl+Q",
@@ -105,7 +121,7 @@ export class AppMenu {
 
   // Menu action handlers
   private handleNewTab(): void {
-    this.mainWindow.createTab("https://www.google.com");
+    this.mainWindow.openNewTab();
   }
 
   private handleCloseTab(): void {

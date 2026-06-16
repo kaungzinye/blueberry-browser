@@ -63,14 +63,14 @@ const VerticalTab: React.FC<VerticalTabProps> = ({
  * The top spacer clears the macOS traffic lights.
  */
 export const TabRail: React.FC = () => {
-  const { tabs, createTab, closeTab, switchTab } = useBrowser();
+  const { tabs, newTab, closeTab, switchTab } = useBrowser();
 
   // The Garden is active when it occupies the content slot — i.e. no tab is
   // the active slot occupant (get-tabs derives isActive from activeView).
   const gardenActive = !tabs.some((tab) => tab.isActive);
 
   return (
-    <div className="app-region-drag flex h-full flex-col bg-[#080d1a] text-[#e7ecf6]">
+    <div className="app-region-drag flex h-full flex-col bg-[#0c1630] text-[#e7ecf6]">
       {/* macOS traffic-light clearance */}
       <div className="h-10 shrink-0" />
 
@@ -108,7 +108,7 @@ export const TabRail: React.FC = () => {
       <div className="app-region-no-drag border-t border-white/10 p-2">
         <button
           type="button"
-          onClick={() => createTab("https://www.google.com")}
+          onClick={() => newTab()}
           className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-[#94a3c2] transition-colors hover:bg-white/[0.06] hover:text-[#e7ecf6]"
         >
           <Plus className="size-4" />

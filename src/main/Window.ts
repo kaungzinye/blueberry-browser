@@ -1,4 +1,4 @@
-import { BaseWindow, shell } from "electron";
+import { BaseWindow, shell, type WebContents } from "electron";
 import { Tab } from "./Tab";
 import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
@@ -6,6 +6,19 @@ import { TabSidebar } from "./TabSidebar";
 import { GardenView } from "./GardenView";
 import { GardenController } from "./garden/GardenController";
 import { LEFT_RAIL_WIDTH, TOPBAR_HEIGHT } from "./layout";
+import {
+  cancelSwitcher,
+  closedSwitcher,
+  commitSwitcher,
+  cycleSwitcher,
+  type SwitcherState,
+} from "./tabSwitcher";
+import { NEW_TAB_URL } from "./newTab";
+import {
+  GARDEN_AGENT_SWITCHER_CANCEL_CHANNEL,
+  GARDEN_AGENT_SWITCHER_COMMIT_CHANNEL,
+  GARDEN_AGENT_SWITCHER_CYCLE_CHANNEL,
+} from "./garden/channels";
 
 export class Window {
   private _baseWindow: BaseWindow;
@@ -16,6 +29,10 @@ export class Window {
   /** When true the left tab rail is collapsed (width 0) and hidden. */
   private railCollapsed: boolean = false;
   private tabCounter: number = 0;
+  /** Tab ids in most-recently-used order (front = most recent). */
+  private mru: string[] = [];
+  /** Arc-style hold-Ctrl tab switcher state (pure model in ./tabSwitcher). */
+  private switcher: SwitcherState = closedSwitcher();
   private _topBar: TopBar;
   private _sideBar: SideBar;
   private _tabSidebar: TabSidebar;
@@ -49,6 +66,16 @@ export class Window {
     // Collapse the URL bar whenever the Garden view takes focus — DOM blur does
     // not fire across WebContentsView boundaries, so the topbar can't detect it.
     this.attachFocusCollapse(this._garden.view.webContents);
+
+    // The Ctrl+Tab opening chord is handled by an application-menu accelerator
+    // (see AppMenu), which fires regardless of which WebContentsView holds DOM
+    // focus — a per-view before-input handler missed the chord whenever focus
+    // sat on native window chrome. Commit/cancel keys live on the focused
+    // top-bar overlay once the switcher is open.
+    this.attachGardenAgentSwitcher(this._topBar.view.webContents);
+    this.attachGardenAgentSwitcher(this._tabSidebar.view.webContents);
+    this.attachGardenAgentSwitcher(this._garden.view.webContents);
+    this.attachGardenAgentSwitcher(this._sideBar.view.webContents);
 
     // Create the first tab
     this.createTab();
@@ -120,18 +147,18 @@ export class Window {
 
     // Collapse the URL bar when this tab takes focus (cross-view click-out).
     this.attachFocusCollapse(tab.webContents);
+    this.attachGardenAgentSwitcher(tab.webContents);
 
-    // Fill the area right of the tab rail, below the top bar, above the command bar.
+    // Fill the area right of the tab rail, below the top bar, down to the
+    // window bottom. The Command Bar floats above this as a layer (it does not
+    // subtract from the content height), so expanding it never reflows the tab.
     const bounds = this._baseWindow.getBounds();
-    const cmdBarH = this._sideBar?.getIsVisible()
-      ? this._sideBar.getCurrentHeight()
-      : 0;
     const railW = this.railWidth;
     tab.view.setBounds({
       x: railW,
       y: TOPBAR_HEIGHT,
       width: Math.max(0, bounds.width - railW),
-      height: Math.max(0, bounds.height - TOPBAR_HEIGHT - cmdBarH),
+      height: Math.max(0, bounds.height - TOPBAR_HEIGHT),
     });
 
     // Store the tab
@@ -145,10 +172,20 @@ export class Window {
       tab.hide();
     }
 
-    // The new tab was just added on top — restore chrome to the top of the
-    // z-order so the top bar / rail keep receiving input.
-    this.bringChromeToFront();
+    // The new tab was just added on top — restore the floating overlays (the
+    // Command Bar, then the chrome) above it so they keep receiving input.
+    this.raiseOverlays();
 
+    return tab;
+  }
+
+  /**
+   * Open a fresh themed blank tab. The topbar renderer shows the centered
+   * new-tab search overlay whenever this blank tab owns the content slot.
+   */
+  openNewTab(): Tab {
+    const tab = this.createTab(NEW_TAB_URL);
+    this.switchActiveTab(tab.id);
     return tab;
   }
 
@@ -201,6 +238,7 @@ export class Window {
     this._baseWindow.contentView.removeChildView(tab.view);
     tab.destroy();
     this.tabsMap.delete(tabId);
+    this.mru = this.mru.filter((id) => id !== tabId);
 
     const remaining = Array.from(this.tabsMap.keys());
 
@@ -243,7 +281,12 @@ export class Window {
     // so a collapsed rail doesn't leave a dead gutter under the bar.
     this._sideBar.show(this.railWidth);
     this.activeTabId = tabId;
+    // Most-recently-used: this tab moves to the front for the switcher order.
+    this.mru = [tabId, ...this.mru.filter((id) => id !== tabId)];
     this.updateTabBounds();
+    // The tab was just shown on top — float the Command Bar + chrome back above
+    // it so the bottom bar (and its expanded full-page chat) stays interactive.
+    this.raiseOverlays();
 
     // Update the window title to match the tab title
     this._baseWindow.setTitle(tab.title || "Blueberry Browser");
@@ -267,6 +310,115 @@ export class Window {
     wc.on("focus", () => {
       this._topBar.view.webContents.send("collapse-address-bar");
     });
+  }
+
+  private attachGardenAgentSwitcher(wc: WebContents): void {
+    wc.on("before-input-event", (event, input) => {
+      if (this.activeView !== "garden") return;
+
+      const cycles =
+        input.type === "keyDown" &&
+        input.key === "Tab" &&
+        input.alt &&
+        !input.control &&
+        !input.meta;
+      if (cycles) {
+        event.preventDefault();
+        this._garden.view.webContents.focus();
+        this._garden.view.webContents.send(
+          GARDEN_AGENT_SWITCHER_CYCLE_CHANNEL,
+          input.shift ? -1 : 1,
+        );
+        return;
+      }
+
+      if (input.type === "keyUp" && input.key === "Alt") {
+        event.preventDefault();
+        this._garden.view.webContents.send(GARDEN_AGENT_SWITCHER_COMMIT_CHANNEL);
+        return;
+      }
+
+      if (input.type === "keyDown" && input.key === "Escape") {
+        this._garden.view.webContents.send(GARDEN_AGENT_SWITCHER_CANCEL_CHANNEL);
+      }
+    });
+  }
+
+  // ── Arc-style hold-Ctrl tab switcher ────────────────────────────────────────
+
+  /** MRU order limited to live tabs, with any untracked tabs appended. */
+  private tabSwitchOrder(): string[] {
+    const ordered = this.mru.filter((id) => this.tabsMap.has(id));
+    for (const id of this.tabsMap.keys()) {
+      if (!ordered.includes(id)) ordered.push(id);
+    }
+    return ordered;
+  }
+
+  /** Open the switcher (if closed) and step the selection by `direction`. */
+  cycleTabSwitcher(direction: 1 | -1): void {
+    const wasOpen = this.switcher.open;
+    this.switcher = cycleSwitcher(this.switcher, this.tabSwitchOrder(), direction);
+    // On open, hand keyboard focus to the top-bar overlay so the live
+    // Tab/Ctrl-release keys are reliable DOM events (the keyUp-on-Control
+    // before-input path was the bug — it never fired the commit).
+    if (!wasOpen && this.switcher.open) {
+      this._topBar.view.webContents.focus();
+    }
+    this.broadcastSwitcher();
+  }
+
+  /** Commit the switcher: switch to the highlighted tab and close the overlay. */
+  commitTabSwitcher(): void {
+    const { state, target } = commitSwitcher(this.switcher);
+    this.switcher = state;
+    this.broadcastSwitcher();
+    if (target && target !== this.activeTabId) {
+      this.switchActiveTab(target);
+      this.activeTab?.webContents.focus();
+    }
+  }
+
+  /** Dismiss the switcher without changing the active tab. */
+  cancelTabSwitcher(): void {
+    this.switcher = cancelSwitcher(this.switcher);
+    this.broadcastSwitcher();
+  }
+
+  /** Pick a specific tab from the switcher grid (click) and close it. */
+  pickTabFromSwitcher(tabId: string): void {
+    this.switcher = cancelSwitcher(this.switcher);
+    this.broadcastSwitcher();
+    if (this.tabsMap.has(tabId) && tabId !== this.activeTabId) {
+      this.switchActiveTab(tabId);
+      this.activeTab?.webContents.focus();
+    }
+  }
+
+  /** Push the current switcher state to the topbar overlay (and size it). */
+  private broadcastSwitcher(): void {
+    const items = this.switcher.open
+      ? this.switcher.order
+          .map((id) => this.tabsMap.get(id))
+          .filter((tab): tab is Tab => Boolean(tab))
+          .map((tab) => ({
+            id: tab.id,
+            title: tab.title,
+            url: tab.url,
+            preview: tab.cachedScreenshot ?? undefined,
+          }))
+      : [];
+    this._topBar.view.webContents.send("tab-switcher", {
+      open: this.switcher.open,
+      index: this.switcher.index,
+      items,
+    });
+    // Grow the top-bar view to cover the whole content area so the grid can
+    // center over a dimmed backdrop (0 restores the slim bar).
+    const overlay = this.switcher.open
+      ? Math.max(0, this._baseWindow.getBounds().height - TOPBAR_HEIGHT)
+      : 0;
+    this._topBar.setOverlayHeight(overlay);
   }
 
   getTab(tabId: string): Tab | null {
@@ -344,6 +496,19 @@ export class Window {
     }
   }
 
+  /**
+   * Restore the floating-overlay z-order above the content-slot views: the
+   * Command Bar layers above the active tab (so it floats over the page and its
+   * expanded full-page chat receives input), and the chrome layers above that.
+   * Re-adding a child view moves it to the top of the stack, so order matters.
+   */
+  private raiseOverlays(): void {
+    if (this._sideBar.getIsVisible()) {
+      this._baseWindow.contentView.addChildView(this._sideBar.view);
+    }
+    this.bringChromeToFront();
+  }
+
   /** Collapse or expand the left tab rail; re-lays-out all views. Returns the new collapsed state. */
   toggleRail(): boolean {
     this.railCollapsed = !this.railCollapsed;
@@ -359,25 +524,27 @@ export class Window {
 
   private updateTabBounds(): void {
     const bounds = this._baseWindow.getBounds();
-    const cmdBarH = this._sideBar.getIsVisible()
-      ? this._sideBar.getCurrentHeight()
-      : 0;
     const railW = this.railWidth;
 
+    // The tab fills the full content area; the Command Bar floats above it and
+    // does not subtract from this height.
     this.tabsMap.forEach((tab) => {
       tab.view.setBounds({
         x: railW,
         y: TOPBAR_HEIGHT,
         width: Math.max(0, bounds.width - railW),
-        height: Math.max(0, bounds.height - TOPBAR_HEIGHT - cmdBarH),
+        height: Math.max(0, bounds.height - TOPBAR_HEIGHT),
       });
     });
   }
 
-  /** Called by EventManager when the command bar resizes (expand/collapse). */
+  /**
+   * Called by EventManager when the command bar expands/collapses. The bar is a
+   * layer over the tab, so only the bar resizes — the tab bounds are untouched
+   * (no reflow of the web page).
+   */
   updateCommandBarHeight(height: number): void {
     this._sideBar.setCommandBarHeight(height);
-    this.updateTabBounds();
   }
 
   // Public method to update all bounds when sidebar/rail changes

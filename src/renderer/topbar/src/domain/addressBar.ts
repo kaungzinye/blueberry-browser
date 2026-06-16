@@ -1,5 +1,5 @@
 /** The default project Garden. Mirrors main's GARDEN_NAME. */
-export const DEFAULT_GARDEN_NAME = "Blueberry Sales Leads";
+export const DEFAULT_GARDEN_NAME = "Default";
 
 /** The Garden address shown in the URL bar when the Garden holds the content slot. */
 export function gardenAddress(name: string = DEFAULT_GARDEN_NAME): string {
@@ -7,9 +7,7 @@ export function gardenAddress(name: string = DEFAULT_GARDEN_NAME): string {
 }
 
 /** What currently occupies the content slot. */
-export type Slot =
-  | { kind: "garden" }
-  | { kind: "tab"; tabId: string };
+export type Slot = { kind: "garden" } | { kind: "tab"; tabId: string };
 
 /** The routing decision for a submitted address-bar string or a chosen suggestion. */
 export type AddressIntent =
@@ -47,7 +45,7 @@ export interface Suggestion {
  */
 export function buildSuggestions(
   input: string,
-  ctx: SuggestionContext
+  ctx: SuggestionContext,
 ): Suggestion[] {
   const trimmed = input.trim();
   if (trimmed === "") return [];
@@ -81,7 +79,7 @@ export function buildSuggestions(
             title: trimmed,
             subtitle: intent.url,
             intent,
-          }
+          },
     );
   }
 

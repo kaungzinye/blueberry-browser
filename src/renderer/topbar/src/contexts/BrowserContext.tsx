@@ -16,6 +16,8 @@ interface BrowserContextType {
 
     // Tab management
     createTab: (url?: string) => Promise<void>
+    /** Open a blank tab with the centered new-tab search surface. */
+    newTab: () => Promise<void>
     closeTab: (tabId: string) => Promise<void>
     switchTab: (tabId: string) => Promise<void>
     refreshTabs: () => Promise<void>
@@ -72,6 +74,21 @@ export const BrowserProvider: React.FC<{ children: React.ReactNode }> = ({ child
             await refreshTabs()
         } catch (error) {
             console.error('Failed to create tab:', error)
+        } finally {
+            setIsLoading(false)
+        }
+    }, [refreshTabs])
+
+    const newTab = useCallback(async () => {
+        setIsLoading(true)
+        try {
+            // Main creates a blank tab and makes it active; the centered
+            // new-tab search derives from the reflected slot + tab list.
+            const created = await window.topBarAPI.newTab()
+            if (created) setIsGardenActive(false)
+            await refreshTabs()
+        } catch (error) {
+            console.error('Failed to open new tab:', error)
         } finally {
             setIsLoading(false)
         }
@@ -203,6 +220,7 @@ export const BrowserProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isLoading,
         isGardenActive,
         createTab,
+        newTab,
         closeTab,
         switchTab,
         refreshTabs,
@@ -221,4 +239,3 @@ export const BrowserProvider: React.FC<{ children: React.ReactNode }> = ({ child
         </BrowserContext.Provider>
     )
 }
-

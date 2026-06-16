@@ -12,6 +12,7 @@ interface TopBarAPI {
   createTab: (
     url?: string
   ) => Promise<{ id: string; title: string; url: string } | null>;
+  newTab: () => Promise<{ id: string; title: string; url: string } | null>;
   closeTab: (tabId: string) => Promise<boolean>;
   switchTab: (tabId: string) => Promise<boolean>;
   getTabs: () => Promise<TabInfo[]>;
@@ -36,6 +37,19 @@ interface TopBarAPI {
     name: string
   ) => Promise<{ active: string; gardens: string[] }>;
 
+  // Garden directory + CRUD (multi-garden, PRD 18-22).
+  listGardens: () => Promise<{ active: string; gardens: string[] }>;
+  createGarden: (
+    name: string
+  ) => Promise<{ active: string; gardens: string[] }>;
+  renameGarden: (
+    from: string,
+    to: string
+  ) => Promise<{ active: string; gardens: string[] }>;
+  deleteGarden: (
+    name: string
+  ) => Promise<{ active: string; gardens: string[] }>;
+
   // Grow/shrink the top bar to host the omnibox suggestion panel.
   setAddressExpanded: (height: number) => Promise<void>;
 
@@ -44,6 +58,22 @@ interface TopBarAPI {
     cb: (slot: { kind: "garden" } | { kind: "tab"; tabId: string }) => void
   ) => () => void;
   onCollapseAddressBar: (cb: () => void) => () => void;
+  switcherCycle: (direction: 1 | -1) => void;
+  switcherCommit: () => void;
+  switcherCancel: () => void;
+  switcherPick: (tabId: string) => void;
+  onTabSwitcher: (
+    cb: (state: {
+      open: boolean;
+      index: number;
+      items: {
+        id: string;
+        title: string;
+        url: string;
+        preview?: string;
+      }[];
+    }) => void
+  ) => () => void;
 }
 
 declare global {
@@ -52,4 +82,3 @@ declare global {
     topBarAPI: TopBarAPI;
   }
 }
-

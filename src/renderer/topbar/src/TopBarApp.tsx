@@ -3,6 +3,8 @@ import { PanelLeft, PanelLeftClose } from 'lucide-react'
 import { BrowserProvider } from './contexts/BrowserContext'
 import { TabRail } from './components/TabRail'
 import { AddressBar } from './components/AddressBar'
+import { NewTabSearch } from './components/NewTabSearch'
+import { TabSwitcher } from './components/TabSwitcher'
 import { cn } from '@common/lib/utils'
 
 /**
@@ -37,7 +39,7 @@ export const TopBarApp: React.FC = () => {
                     // conditional pl-*) — two padding-left utilities collide and
                     // Tailwind's output order decides the winner, which left the
                     // toggle button under the macOS traffic lights and unclickable.
-                    'relative flex h-12 shrink-0 items-center gap-1 app-region-drag bg-[#080d1a] text-[#e7ecf6] pr-2',
+                    'relative flex h-12 shrink-0 items-center gap-1 app-region-drag bg-[#0c1630] text-[#e7ecf6] pr-2',
                     // When the rail is collapsed the bar spans to window x=0, so
                     // push the controls clear of the native traffic-light /
                     // window-control zone at the far left (~x≤88). 8px otherwise.
@@ -58,6 +60,10 @@ export const TopBarApp: React.FC = () => {
                     )}
                 </button>
                 <AddressBar />
+                <NewTabSearch />
+                {/* Hold-Ctrl tab switcher overlay — renders into the grown
+                    top-bar view (centered below the bar), like the omnibox. */}
+                <TabSwitcher />
             </div>
         </BrowserProvider>
     )

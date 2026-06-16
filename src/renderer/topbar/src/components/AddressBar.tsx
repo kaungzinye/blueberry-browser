@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, RefreshCw, Loader2, Search, Globe, ArrowLeftRigh
 import { useBrowser } from '../contexts/BrowserContext'
 import { ToolBarButton } from '../components/ToolBarButton'
 import { Favicon } from '../components/Favicon'
-import { DarkModeToggle } from '../components/DarkModeToggle'
+import { GardenSwitcher } from '../components/GardenSwitcher'
 import { cn } from '@common/lib/utils'
 import {
     buildSuggestions,
@@ -318,10 +318,8 @@ export const AddressBar: React.FC = () => {
                 </div>
             )}
 
-            {/* Actions Menu */}
-            <div className="flex items-center gap-1 app-region-no-drag">
-                <DarkModeToggle />
-            </div>
+            {/* Garden directory — dropdown switcher + CRUD, right of the URL bar. */}
+            <GardenSwitcher onShowGarden={() => void showGarden()} />
         </>
     )
 }
