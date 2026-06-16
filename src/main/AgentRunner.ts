@@ -8,6 +8,12 @@ import { mkdir, writeFile } from "fs/promises";
 import type { Window } from "./Window";
 import type { GardenStore } from "./garden/GardenStore";
 import type { GardenStatePatch } from "../renderer/garden/src/domain/gardenPatches";
+import { formatErrorMessage } from "./errorMessage";
+import {
+  DEFAULT_LLM_MODELS,
+  hasLLMApiKey,
+  resolveLLMProvider,
+} from "./llmConfig";
 import {
   resolve,
   requiresApproval,
@@ -44,7 +50,7 @@ You are a Main Agent in Blueberry Browser — a spatial browser-workspace where 
 
 ## Label rules
 Labels appear in the UI at small size. Keep them ≤ 60 chars, present-tense, action-first.
-✓ "Reading Strawberry sales page"   ✗ "I am now going to read the page"`;
+✓ "Reading pricing page"   ✗ "I am now going to read the page"`;
 
 // ── RunCommandOpts ────────────────────────────────────────────────────────────
 
@@ -138,17 +144,15 @@ export class AgentRunner {
   }
 
   private getModel() {
-    if (process.env.LLM_PROVIDER?.toLowerCase() === "openai") {
-      return openai(process.env.LLM_MODEL ?? "gpt-4o");
+    const provider = resolveLLMProvider();
+    if (provider === "openai") {
+      return openai(process.env.LLM_MODEL ?? DEFAULT_LLM_MODELS.openai);
     }
-    return anthropic(process.env.LLM_MODEL ?? "claude-sonnet-4-6");
+    return anthropic(process.env.LLM_MODEL ?? DEFAULT_LLM_MODELS.anthropic);
   }
 
   private hasApiKey(): boolean {
-    const provider = process.env.LLM_PROVIDER?.toLowerCase() ?? "anthropic";
-    return provider === "openai"
-      ? Boolean(process.env.OPENAI_API_KEY)
-      : Boolean(process.env.ANTHROPIC_API_KEY);
+    return hasLLMApiKey();
   }
 
   // ── Run ──────────────────────────────────────────────────────────────────
@@ -224,7 +228,9 @@ export class AgentRunner {
         for await (const part of result.fullStream) {
           if (part.type === "error") {
             throw new Error(
-              String((part as { type: "error"; error: unknown }).error),
+              formatErrorMessage(
+                (part as { type: "error"; error: unknown }).error,
+              ),
             );
           }
         }
@@ -261,10 +267,7 @@ export class AgentRunner {
       });
     } catch (error) {
       console.error("[AgentRunner] Stream error:", error);
-      const msg =
-        error instanceof Error
-          ? error.message.slice(0, 80)
-          : "Unexpected error";
+      const msg = formatErrorMessage(error).slice(0, 120);
       this.emit({
         type: "agent-state",
         agentId: this.agentId,
@@ -321,9 +324,7 @@ export class AgentRunner {
         url: z.string().describe("Full URL including https://"),
         label: z
           .string()
-          .describe(
-            "Short label shown on the Berry, e.g. 'Strawberry product page'",
-          ),
+          .describe("Short label shown on the Berry, e.g. 'Pricing page'"),
       }) as any,
       execute: async ({ url, label }: { url: string; label: string }) => {
         const tab = self.window.createTab(url);

@@ -180,7 +180,13 @@ const rehydrate = (state: GardenState): GardenState => {
   return {
     ...state,
     workRuns: state.workRuns.map((run) =>
-      interruptedRunIds.has(run.id) ? { ...run, status: "interrupted" } : run,
+      interruptedRunIds.has(run.id)
+        ? {
+            ...run,
+            planStatus: run.planStatus ?? "ready",
+            status: "interrupted",
+          }
+        : { ...run, planStatus: run.planStatus ?? "ready" },
     ),
     commands: state.commands.map((command) =>
       command.workRunId && interruptedRunIds.has(command.workRunId)

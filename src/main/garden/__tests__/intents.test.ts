@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { reduceIntent } from "../intents";
-import { createInitialGardenState } from "../../../renderer/garden/src/domain/gardenDomain";
+import {
+  createInitialGardenState,
+  createPromptPlanDraft,
+} from "../../../renderer/garden/src/domain/gardenDomain";
 
 describe("reduceIntent", () => {
   it("new-command spawns a Main Agent and selects it", () => {
@@ -14,7 +17,7 @@ describe("reduceIntent", () => {
     expect(selectMainAgentId).toBe(state.agents[0].id);
   });
 
-  it("submit-command on a new agent creates a planning Work Run for work-shaped text", () => {
+  it("submit-command on a new agent asks before planning work-shaped text", () => {
     const { state, selectMainAgentId } = reduceIntent(
       createInitialGardenState(),
       {
@@ -28,9 +31,46 @@ describe("reduceIntent", () => {
     const command = state.commands.find(
       (c) => c.mainAgentId === selectMainAgentId,
     );
+    expect(command?.route).toBe("ambiguous");
+    expect(command?.status).toBe("awaiting-route");
+    expect(state.workRuns).toHaveLength(0);
+  });
+
+  it("submit-command can still create a planning Work Run when explicit", () => {
+    const { state, selectMainAgentId } = reduceIntent(
+      createInitialGardenState(),
+      {
+        type: "submit-command",
+        text: "run visibly: find 10 companies and write leads",
+        mainAgentId: null,
+      },
+    );
+
+    expect(selectMainAgentId).toBeDefined();
+    const command = state.commands.find(
+      (c) => c.mainAgentId === selectMainAgentId,
+    );
     expect(command?.route).toBe("work-run");
     expect(command?.status).toBe("planning");
     expect(state.workRuns).toHaveLength(1);
+    expect(state.workRuns[0].planStatus).toBe("drafting");
+  });
+
+  it("set-plan attaches the generated plan and makes approval available", () => {
+    const drafting = reduceIntent(createInitialGardenState(), {
+      type: "submit-command",
+      text: "run visibly: find 10 companies and write leads",
+      mainAgentId: null,
+    }).state;
+
+    const { state } = reduceIntent(drafting, {
+      type: "set-plan",
+      workRunId: drafting.workRuns[0].id,
+      plan: createPromptPlanDraft(drafting.commands[0].text),
+    });
+
+    expect(state.workRuns[0].planStatus).toBe("ready");
+    expect(state.agents[0].currentLabel).toBe("Plan ready");
   });
 
   it("submit-command routes a chatty prompt to a completed quick command", () => {
@@ -103,11 +143,16 @@ describe("reduceIntent", () => {
     expect(state.commands[0].status).toBe("complete");
   });
 
-  it("approve-work-run flips the run to running and seeds demo berries", () => {
-    const planned = reduceIntent(createInitialGardenState(), {
+  it("approve-work-run flips the run to running without seeding fake berries", () => {
+    const pending = reduceIntent(createInitialGardenState(), {
       type: "submit-command",
       text: "find leads and write to google sheets",
       mainAgentId: null,
+    }).state;
+    const planned = reduceIntent(pending, {
+      type: "choose-route",
+      commandId: pending.commands[0].id,
+      route: "work-run",
     }).state;
     const runId = planned.workRuns[0].id;
 
@@ -117,7 +162,7 @@ describe("reduceIntent", () => {
     });
 
     expect(state.workRuns[0].status).toBe("running");
-    expect(state.berries.length).toBeGreaterThan(0);
+    expect(state.berries).toHaveLength(0);
   });
 
   it("mark-command-done then reopen-command round-trips command status", () => {
@@ -158,5 +203,29 @@ describe("reduceIntent", () => {
     const tabBerry = state.berries.find((b) => b.browserTabId === "tab-1");
     expect(tabBerry).toBeDefined();
     expect(tabBerry?.isActive).toBe(true);
+  });
+
+  it("move-berry persists a Berry placement through the main reducer", () => {
+    const seeded = reduceIntent(createInitialGardenState(), {
+      type: "sync-tab-berries",
+      snapshots: [
+        {
+          browserTabId: "tab-1",
+          title: "Example",
+          url: "https://example.com",
+        },
+      ],
+    }).state;
+
+    const { state } = reduceIntent(seeded, {
+      type: "move-berry",
+      berryId: "berry-tab-tab-1",
+      x: 144,
+      y: 288,
+    });
+
+    expect(state.berries.find((b) => b.id === "berry-tab-tab-1")).toMatchObject(
+      { x: 144, y: 288 },
+    );
   });
 });

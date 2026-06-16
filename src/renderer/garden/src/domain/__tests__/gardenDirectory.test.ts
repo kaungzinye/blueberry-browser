@@ -4,10 +4,7 @@ import {
   SCRATCH_GARDEN,
   promoteBerry,
 } from "../gardenDirectory";
-import {
-  createInitialGardenState,
-  syncTabBerries,
-} from "../gardenDomain";
+import { createInitialGardenState, syncTabBerries } from "../gardenDomain";
 
 const scratchWithTab = () =>
   syncTabBerries(createInitialGardenState(), [
@@ -21,7 +18,7 @@ const scratchWithTab = () =>
 describe("Garden directory", () => {
   it("ships a Scratch garden and a default project garden", () => {
     expect(DEFAULT_GARDENS).toContain(SCRATCH_GARDEN);
-    expect(DEFAULT_GARDENS).toContain("Blueberry Sales Leads");
+    expect(DEFAULT_GARDENS).toContain("Default");
   });
 
   it("promoting a Scratch tab moves its Berry into the target garden", () => {

@@ -1,22 +1,29 @@
 /**
  * Orchestrates the main-owned Garden (ADR-0003): owns the {@link GardenStore},
- * the per-Main-Agent {@link AgentRunner} sessions, and the scripted-demo timers.
+ * the per-Main-Agent {@link AgentRunner} sessions.
  * EventManager forwards IPC straight to this; renderers never touch sessions.
  */
 import type { WebContents } from "electron";
 import type { Window } from "../Window";
 import { GardenStore } from "./GardenStore";
 import { AgentRunner } from "../AgentRunner";
+import { hasLLMApiKey } from "../llmConfig";
 import type { GardenIntent, IntentResult } from "./intents";
 import type { GardenSnapshot } from "./channels";
-import { AUTO_ADVANCE_MS } from "../../renderer/garden/src/domain/gardenDomain";
 import {
   DEFAULT_GARDENS,
+  SCRATCH_GARDEN,
   promoteBerry,
 } from "../../renderer/garden/src/domain/gardenDirectory";
 
-/** The default project Garden (matches the renderer's artifact root). */
-export const GARDEN_NAME = "Blueberry Sales Leads";
+/** Directory shape returned to renderers after any directory mutation. */
+export interface GardenDirectory {
+  active: string;
+  gardens: string[];
+}
+
+/** The default project Garden. */
+export const GARDEN_NAME = "Default";
 
 export class GardenController {
   /** gardenName → store; every Garden persists to its own garden.json. */
@@ -24,11 +31,8 @@ export class GardenController {
   private activeGardenName: string = GARDEN_NAME;
   /** agentId → live session. */
   private readonly sessions = new Map<string, AgentRunner>();
-  /** workRunId → scripted-demo advance timer. */
-  private readonly scriptedTimers = new Map<
-    string,
-    ReturnType<typeof setInterval>
-  >();
+  /** workRunIds currently getting an LLM/authored plan. */
+  private readonly planGenerations = new Set<string>();
 
   constructor(private readonly window: Window) {
     for (const name of DEFAULT_GARDENS) {
@@ -56,7 +60,7 @@ export class GardenController {
 
   // ── Garden directory (PRD stories 18–22) ────────────────────────────────────
 
-  listGardens(): { active: string; gardens: string[] } {
+  listGardens(): GardenDirectory {
     return { active: this.activeGardenName, gardens: [...this.stores.keys()] };
   }
 
@@ -69,6 +73,71 @@ export class GardenController {
     }
     this.activeGardenName = name;
     this.store.broadcast();
+  }
+
+  /**
+   * Create a new (empty) Garden and switch to it. No-op on a blank or
+   * duplicate name; Gardens are peers, so a new one is just a new store.
+   */
+  createGarden(name: string): GardenDirectory {
+    const trimmed = name.trim();
+    if (!trimmed || this.stores.has(trimmed)) return this.listGardens();
+    const store = this.createStore(trimmed);
+    this.stores.set(trimmed, store);
+    void store.load();
+    this.activeGardenName = trimmed;
+    store.broadcast();
+    return this.listGardens();
+  }
+
+  /**
+   * Rename a Garden, preserving directory order and carrying its state to the
+   * new persist path. Scratch is reserved; blank/duplicate targets are no-ops.
+   * (The old garden.json folder is left orphaned rather than deleted.)
+   */
+  renameGarden(from: string, to: string): GardenDirectory {
+    const target = to.trim();
+    if (from === SCRATCH_GARDEN || !target) return this.listGardens();
+    if (!this.stores.has(from) || this.stores.has(target)) {
+      return this.listGardens();
+    }
+    const next = this.createStore(target);
+    next.setState(this.stores.get(from)!.getState());
+
+    const rebuilt = new Map<string, GardenStore>();
+    for (const [name, store] of this.stores) {
+      if (name === from) rebuilt.set(target, next);
+      else rebuilt.set(name, store);
+    }
+    this.stores.clear();
+    for (const [name, store] of rebuilt) this.stores.set(name, store);
+
+    if (this.activeGardenName === from) this.activeGardenName = target;
+    this.store.broadcast();
+    return this.listGardens();
+  }
+
+  /**
+   * Delete a Garden. Scratch is reserved, and the last remaining project
+   * Garden cannot be deleted (there must always be somewhere to work). If the
+   * active Garden is deleted, the first remaining Garden becomes active. The
+   * on-disk garden.json is left in place so a delete is recoverable.
+   */
+  deleteGarden(name: string): GardenDirectory {
+    if (name === SCRATCH_GARDEN || !this.stores.has(name)) {
+      return this.listGardens();
+    }
+    const projectGardens = [...this.stores.keys()].filter(
+      (n) => n !== SCRATCH_GARDEN,
+    );
+    if (projectGardens.length <= 1) return this.listGardens();
+
+    this.stores.delete(name);
+    if (this.activeGardenName === name) {
+      this.activeGardenName = [...this.stores.keys()][0] ?? SCRATCH_GARDEN;
+    }
+    this.store.broadcast();
+    return this.listGardens();
   }
 
   /**
@@ -107,8 +176,8 @@ export class GardenController {
   }
 
   /**
-   * Apply a renderer intent. `approve-work-run` is special-cased: it decides
-   * real-agent vs scripted-demo execution rather than blindly reducing.
+   * Apply a renderer intent. `approve-work-run` is special-cased: approval
+   * starts a real agent session when configured.
    */
   dispatch(intent: GardenIntent): IntentResult {
     if (intent.type === "approve-work-run") {
@@ -116,6 +185,7 @@ export class GardenController {
     }
     const result = this.store.dispatch(intent);
     this.maybeQuickRespond(intent);
+    this.maybeGeneratePlan(intent);
     return result;
   }
 
@@ -132,7 +202,8 @@ export class GardenController {
     const command = this.store
       .getState()
       .commands.find(
-        (cmd) => cmd.route === "quick" && cmd.status === "complete" && !cmd.response,
+        (cmd) =>
+          cmd.route === "quick" && cmd.status === "complete" && !cmd.response,
       );
     if (!command) return;
 
@@ -148,6 +219,53 @@ export class GardenController {
       .catch((err) =>
         console.error("[GardenController] quick response error:", err),
       );
+  }
+
+  /**
+   * Work Run approval must approve a real plan, not a canned object. When a
+   * Work Run is created, ask the configured model to draft a structured plan
+   * from the user's command, then mark the plan ready.
+   */
+  private maybeGeneratePlan(intent: GardenIntent): void {
+    if (
+      intent.type !== "submit-command" &&
+      intent.type !== "choose-route" &&
+      intent.type !== "upgrade-command"
+    ) {
+      return;
+    }
+
+    for (const workRun of this.store.getState().workRuns) {
+      if (
+        workRun.status !== "planning" ||
+        workRun.planStatus !== "drafting" ||
+        this.planGenerations.has(workRun.id)
+      ) {
+        continue;
+      }
+
+      const command = this.store
+        .getState()
+        .commands.find((cmd) => cmd.id === workRun.commandId);
+      if (!command) continue;
+
+      this.planGenerations.add(workRun.id);
+      void this.window.sidebar.client
+        .generateWorkRunPlan(command.text)
+        .then((plan) => {
+          this.store.dispatch({
+            type: "set-plan",
+            workRunId: workRun.id,
+            plan,
+          });
+        })
+        .catch((err) =>
+          console.error("[GardenController] work-run plan error:", err),
+        )
+        .finally(() => {
+          this.planGenerations.delete(workRun.id);
+        });
+    }
   }
 
   resolveApproval(approvalId: string, approved: boolean): void {
@@ -167,68 +285,37 @@ export class GardenController {
     const workRun = state.workRuns.find((run) => run.id === workRunId);
     const command = state.commands.find((cmd) => cmd.workRunId === workRunId);
 
-    if (!workRun || !command) {
+    if (!workRun || !command || workRun.planStatus !== "ready") {
       return { state };
     }
 
-    if (this.hasApiKey()) {
-      // Real mode: the session emits running statuses + live berries via patches.
-      // Do NOT reduce approveWorkRun (that seeds the scripted demo berries).
-      const session = new AgentRunner(this.window, this.store);
-      this.sessions.set(command.mainAgentId, session);
-      void session
-        .run({
-          commandText: command.text,
-          commandId: command.id,
-          agentId: command.mainAgentId,
-          workRunId,
-          gardenName: this.activeGardenName,
-        })
-        .catch((err) =>
-          console.error("[GardenController] session error:", err),
-        );
-      return { state: this.store.getState() };
+    if (!this.hasApiKey()) {
+      return this.store.dispatch({
+        type: "block-work-run",
+        workRunId,
+        reason: "No API key configured for a real agent run",
+      });
     }
 
-    // Scripted demo: seed berries via the reducer, then auto-advance on a timer.
-    const result = this.store.dispatch({ type: "approve-work-run", workRunId });
-    this.startScriptedAdvance(workRunId);
-    return result;
-  }
-
-  private startScriptedAdvance(workRunId: string): void {
-    this.clearScriptedTimer(workRunId);
-    const timer = setInterval(() => {
-      const run = this.store
-        .getState()
-        .workRuns.find((r) => r.id === workRunId);
-      if (!run || run.status !== "running") {
-        this.clearScriptedTimer(workRunId);
-        return;
-      }
-      this.store.dispatch({ type: "advance-work-run", workRunId });
-    }, AUTO_ADVANCE_MS);
-    this.scriptedTimers.set(workRunId, timer);
-  }
-
-  private clearScriptedTimer(workRunId: string): void {
-    const timer = this.scriptedTimers.get(workRunId);
-    if (timer) {
-      clearInterval(timer);
-      this.scriptedTimers.delete(workRunId);
-    }
+    const session = new AgentRunner(this.window, this.store);
+    this.sessions.set(command.mainAgentId, session);
+    void session
+      .run({
+        commandText: command.text,
+        commandId: command.id,
+        agentId: command.mainAgentId,
+        workRunId,
+        gardenName: this.activeGardenName,
+      })
+      .catch((err) => console.error("[GardenController] session error:", err));
+    return { state: this.store.getState() };
   }
 
   private hasApiKey(): boolean {
-    const provider = process.env.LLM_PROVIDER?.toLowerCase() ?? "anthropic";
-    return provider === "openai"
-      ? Boolean(process.env.OPENAI_API_KEY)
-      : Boolean(process.env.ANTHROPIC_API_KEY);
+    return hasLLMApiKey();
   }
 
   cleanup(): void {
-    for (const timer of this.scriptedTimers.values()) clearInterval(timer);
-    this.scriptedTimers.clear();
     this.sessions.clear();
   }
 }

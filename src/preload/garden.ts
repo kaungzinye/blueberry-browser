@@ -6,6 +6,9 @@ import {
   GARDEN_GET_STATE_CHANNEL,
   GARDEN_RESOLVE_APPROVAL_CHANNEL,
   GARDEN_SUBMIT_TURN_CHANNEL,
+  GARDEN_AGENT_SWITCHER_CYCLE_CHANNEL,
+  GARDEN_AGENT_SWITCHER_COMMIT_CHANNEL,
+  GARDEN_AGENT_SWITCHER_CANCEL_CHANNEL,
 } from "../main/garden/channels";
 
 interface TabBerrySnapshot {
@@ -80,6 +83,39 @@ const gardenAPI = {
     electronAPI.ipcRenderer.on("garden-shown", listener);
     return () =>
       electronAPI.ipcRenderer.removeListener("garden-shown", listener);
+  },
+
+  onAgentSwitcherCycle: (cb: (direction: 1 | -1) => void): (() => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      direction: 1 | -1,
+    ): void => cb(direction);
+    electronAPI.ipcRenderer.on(GARDEN_AGENT_SWITCHER_CYCLE_CHANNEL, listener);
+    return () =>
+      electronAPI.ipcRenderer.removeListener(
+        GARDEN_AGENT_SWITCHER_CYCLE_CHANNEL,
+        listener,
+      );
+  },
+
+  onAgentSwitcherCommit: (cb: () => void): (() => void) => {
+    const listener = (): void => cb();
+    electronAPI.ipcRenderer.on(GARDEN_AGENT_SWITCHER_COMMIT_CHANNEL, listener);
+    return () =>
+      electronAPI.ipcRenderer.removeListener(
+        GARDEN_AGENT_SWITCHER_COMMIT_CHANNEL,
+        listener,
+      );
+  },
+
+  onAgentSwitcherCancel: (cb: () => void): (() => void) => {
+    const listener = (): void => cb();
+    electronAPI.ipcRenderer.on(GARDEN_AGENT_SWITCHER_CANCEL_CHANNEL, listener);
+    return () =>
+      electronAPI.ipcRenderer.removeListener(
+        GARDEN_AGENT_SWITCHER_CANCEL_CHANNEL,
+        listener,
+      );
   },
 };
 

@@ -1,5 +1,6 @@
 import { WebContents } from "electron";
 import {
+  generateObject,
   generateText,
   streamText,
   type LanguageModel,
@@ -10,6 +11,17 @@ import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
 import { join } from "path";
 import type { Window } from "./Window";
+import {
+  createPromptPlanDraft,
+  type WorkRunPlan,
+} from "../renderer/garden/src/domain/gardenDomain";
+import {
+  DEFAULT_LLM_MODELS,
+  getLLMApiKey,
+  resolveLLMProvider,
+  type LLMProvider,
+} from "./llmConfig";
+import { z } from "zod";
 
 // Load environment variables from .env file
 dotenv.config({ path: join(__dirname, "../../.env") });
@@ -24,15 +36,20 @@ interface StreamChunk {
   isComplete: boolean;
 }
 
-type LLMProvider = "openai" | "anthropic";
-
-const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  openai: "gpt-4o-mini",
-  anthropic: "claude-3-5-sonnet-20241022",
-};
-
 const MAX_CONTEXT_LENGTH = 4000;
 const DEFAULT_TEMPERATURE = 0.7;
+
+const workRunPlanSchema = z.object({
+  summary: z.string().min(1),
+  sources: z.array(z.string().min(1)).min(1).max(6),
+  qualificationCriteria: z.array(z.string().min(1)).min(1).max(6),
+  outputColumns: z.array(z.string().min(1)).min(1).max(10),
+  destination: z.object({
+    primary: z.string().min(1),
+    backup: z.string().min(1).optional(),
+  }),
+  approvalCheckpoints: z.array(z.string().min(1)).min(1).max(5),
+});
 
 export class LLMClient {
   private readonly webContents: WebContents;
@@ -57,13 +74,11 @@ export class LLMClient {
   }
 
   private getProvider(): LLMProvider {
-    const provider = process.env.LLM_PROVIDER?.toLowerCase();
-    if (provider === "anthropic") return "anthropic";
-    return "openai"; // Default to OpenAI
+    return resolveLLMProvider();
   }
 
   private getModelName(): string {
-    return process.env.LLM_MODEL || DEFAULT_MODELS[this.provider];
+    return process.env.LLM_MODEL || DEFAULT_LLM_MODELS[this.provider];
   }
 
   private initializeModel(): LanguageModel | null {
@@ -81,27 +96,20 @@ export class LLMClient {
   }
 
   private getApiKey(): string | undefined {
-    switch (this.provider) {
-      case "anthropic":
-        return process.env.ANTHROPIC_API_KEY;
-      case "openai":
-        return process.env.OPENAI_API_KEY;
-      default:
-        return undefined;
-    }
+    return getLLMApiKey(this.provider);
   }
 
   private logInitializationStatus(): void {
     if (this.model) {
       console.log(
-        `✅ LLM Client initialized with ${this.provider} provider using model: ${this.modelName}`
+        `✅ LLM Client initialized with ${this.provider} provider using model: ${this.modelName}`,
       );
     } else {
       const keyName =
         this.provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
       console.error(
         `❌ LLM Client initialization failed: ${keyName} not found in environment variables.\n` +
-          `Please add your API key to the .env file in the project root.`
+          `Please add your API key to the .env file in the project root.`,
       );
     }
   }
@@ -128,6 +136,29 @@ export class LLMClient {
     }
   }
 
+  /**
+   * Build the plan the user is asked to approve. This is the missing planning
+   * pass: it happens before Work Run approval, uses the initial prompt as input,
+   * and returns structured plan sections the HUD can show inline.
+   */
+  async generateWorkRunPlan(prompt: string): Promise<WorkRunPlan> {
+    if (!this.model) return createPromptPlanDraft(prompt);
+    try {
+      const { object } = await generateObject({
+        model: this.model,
+        schema: workRunPlanSchema,
+        system:
+          "You are Blueberry's Main Agent planner. Create a concise, user-approvable browser work plan from the user's prompt. The plan must be specific to the prompt. Do not invent Google Sheets, XLSX, outreach, or lead generation unless the user asked for them. Include approval checkpoints for consequential external actions.",
+        prompt,
+        temperature: 0.2,
+      });
+      return object;
+    } catch (error) {
+      console.error("[LLMClient] work-run plan generation failed:", error);
+      return createPromptPlanDraft(prompt);
+    }
+  }
+
   async sendChatMessage(request: ChatRequest): Promise<void> {
     try {
       // Get screenshot from active tab if available
@@ -146,7 +177,7 @@ export class LLMClient {
 
       // Build user message content with screenshot first, then text
       const userContent: any[] = [];
-      
+
       // Add screenshot as the first part if available
       if (screenshot) {
         userContent.push({
@@ -154,7 +185,7 @@ export class LLMClient {
           image: screenshot,
         });
       }
-      
+
       // Add text content
       userContent.push({
         type: "text",
@@ -166,7 +197,7 @@ export class LLMClient {
         role: "user",
         content: userContent.length === 1 ? request.message : userContent,
       };
-      
+
       this.messages.push(userMessage);
 
       // Send updated messages to renderer
@@ -175,7 +206,7 @@ export class LLMClient {
       if (!this.model) {
         this.sendErrorMessage(
           request.messageId,
-          "LLM service is not configured. Please add your API key to the .env file."
+          "LLM service is not configured. Please add your API key to the .env file.",
         );
         return;
       }
@@ -201,11 +232,13 @@ export class LLMClient {
     this.webContents.send("chat-messages-updated", this.messages);
   }
 
-  private async prepareMessagesWithContext(_request: ChatRequest): Promise<CoreMessage[]> {
+  private async prepareMessagesWithContext(
+    _request: ChatRequest,
+  ): Promise<CoreMessage[]> {
     // Get page context from active tab
     let pageUrl: string | null = null;
     let pageText: string | null = null;
-    
+
     if (this.window) {
       const activeTab = this.window.activeTab;
       if (activeTab) {
@@ -228,7 +261,10 @@ export class LLMClient {
     return [systemMessage, ...this.messages];
   }
 
-  private buildSystemPrompt(url: string | null, pageText: string | null): string {
+  private buildSystemPrompt(
+    url: string | null,
+    pageText: string | null,
+  ): string {
     const parts: string[] = [
       "You are a helpful AI assistant integrated into a web browser.",
       "You can analyze and discuss web pages with the user.",
@@ -246,7 +282,7 @@ export class LLMClient {
 
     parts.push(
       "\nPlease provide helpful, accurate, and contextual responses about the current webpage.",
-      "If the user asks about specific content, refer to the page content and/or screenshot provided."
+      "If the user asks about specific content, refer to the page content and/or screenshot provided.",
     );
 
     return parts.join("\n");
@@ -259,7 +295,7 @@ export class LLMClient {
 
   private async streamResponse(
     messages: CoreMessage[],
-    messageId: string
+    messageId: string,
   ): Promise<void> {
     if (!this.model) {
       throw new Error("Model not initialized");
@@ -282,7 +318,7 @@ export class LLMClient {
 
   private async processStream(
     textStream: AsyncIterable<string>,
-    messageId: string
+    messageId: string,
   ): Promise<void> {
     let accumulatedText = "";
 
@@ -291,7 +327,7 @@ export class LLMClient {
       role: "assistant",
       content: "",
     };
-    
+
     // Keep track of the index for updates
     const messageIndex = this.messages.length;
     this.messages.push(assistantMessage);

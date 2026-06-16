@@ -20,7 +20,9 @@ import {
   pauseWorkRun,
   retryWorkRun,
   completeWorkRun,
+  moveBerry,
   showBerryOnGarden,
+  setWorkRunPlan,
   submitCommand,
   syncTabBerries,
   upgradeCommand,
@@ -50,11 +52,13 @@ export type GardenIntent =
     }
   | { type: "block-work-run"; workRunId: string; reason: string }
   | { type: "edit-plan"; workRunId: string; patch: Partial<WorkRunPlan> }
+  | { type: "set-plan"; workRunId: string; plan: WorkRunPlan }
   | { type: "pause-work-run"; workRunId: string }
   | { type: "retry-work-run"; workRunId: string }
   | { type: "mark-command-done"; commandId: string }
   | { type: "reopen-command"; commandId: string }
   | { type: "show-berry"; berryId: string }
+  | { type: "move-berry"; berryId: string; x: number; y: number }
   | { type: "sync-tab-berries"; snapshots: TabBerrySnapshot[] };
 
 /**
@@ -116,6 +120,11 @@ export const reduceIntent = (
         state: editWorkRunPlan(state, intent.workRunId, intent.patch),
       };
 
+    case "set-plan":
+      return {
+        state: setWorkRunPlan(state, intent.workRunId, intent.plan),
+      };
+
     case "block-work-run":
       return { state: blockWorkRun(state, intent.workRunId, intent.reason) };
 
@@ -133,6 +142,11 @@ export const reduceIntent = (
 
     case "show-berry":
       return { state: showBerryOnGarden(state, intent.berryId) };
+
+    case "move-berry":
+      return {
+        state: moveBerry(state, intent.berryId, { x: intent.x, y: intent.y }),
+      };
 
     case "sync-tab-berries":
       return { state: syncTabBerries(state, intent.snapshots) };

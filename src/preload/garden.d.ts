@@ -137,6 +137,9 @@ declare global {
     submitTurn: (agentId: string, text: string) => Promise<boolean>;
     onGardenState: (cb: (snapshot: GardenSnapshot) => void) => () => void;
     onGardenShown: (cb: () => void) => () => void;
+    onAgentSwitcherCycle: (cb: (direction: 1 | -1) => void) => () => void;
+    onAgentSwitcherCommit: (cb: () => void) => () => void;
+    onAgentSwitcherCancel: (cb: () => void) => () => void;
   }
 
   interface Window {

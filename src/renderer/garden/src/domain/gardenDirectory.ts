@@ -10,7 +10,7 @@ import type { GardenState } from "./gardenDomain";
 export const SCRATCH_GARDEN = "Scratch";
 
 /** Gardens that always exist (story 19/20/21). */
-export const DEFAULT_GARDENS = [SCRATCH_GARDEN, "Blueberry Sales Leads"];
+export const DEFAULT_GARDENS = [SCRATCH_GARDEN, "Default"];
 
 /**
  * Promote a Berry (usually a Scratch tab) into another garden (story 22):

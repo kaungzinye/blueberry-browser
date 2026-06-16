@@ -1,40 +1,93 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceWorkRun,
+  approveWorkRun,
   blockWorkRun,
   chooseRoute,
-  editWorkRunPlan,
-  pauseWorkRun,
-  retryWorkRun,
-  approveWorkRun,
   completeWorkRun,
   createInitialGardenState,
+  createPromptPlanDraft,
+  editWorkRunPlan,
   filterBerrySwitcher,
   getCommandLog,
   getLedgerEntries,
   getReaderContent,
   getVisibleBerries,
+  moveBerry,
+  pauseWorkRun,
+  retryWorkRun,
+  setWorkRunPlan,
   showBerryOnGarden,
   submitCommand,
   syncTabBerries,
   upgradeCommand,
+  type Berry,
+  type GardenState,
 } from "../gardenDomain";
+import { getAgentDirectoryView } from "../agentDirectory";
 
-const demoCommand =
-  "Find leads and write them to Google Sheets with an XLSX backup";
+const workCommand = "Find current browser automation tools and write a report";
+
+const planWorkCommand = (): GardenState => {
+  const { state } = submitCommand(createInitialGardenState(), workCommand);
+  return chooseRoute(state, state.commands[0].id, "work-run");
+};
+
+const runningWithBerries = (): GardenState => {
+  const running = approveWorkRun(planWorkCommand(), "work-run-1");
+  const berries: Berry[] = [
+    {
+      id: "berry-source-tab",
+      kind: "tab",
+      title: "Source page",
+      subtitle: "example.com",
+      url: "https://example.com/",
+      x: 120,
+      y: 120,
+      width: 240,
+      height: 170,
+      status: "reading",
+      workRunId: "work-run-1",
+      onMap: true,
+    },
+    {
+      id: "berry-report",
+      kind: "report",
+      title: "summary.md",
+      subtitle: "Generated report",
+      x: 420,
+      y: 120,
+      width: 240,
+      height: 150,
+      status: "writing",
+      workRunId: "work-run-1",
+      onMap: true,
+      filePath: "/tmp/summary.md",
+    },
+  ];
+  return { ...running, berries };
+};
 
 describe("Garden command routing", () => {
-  it("turns the demo lead-gen command into a planned Work Run owned by the Main Agent", () => {
-    const state = createInitialGardenState();
-
+  it("routes work-shaped commands as ambiguous instead of silently planning", () => {
     const { state: next } = submitCommand(
-      state,
-      "Look at Strawberry's product and sales prospecting pages. Infer who they sell to. Then search the web for 10 companies that might buy Blueberry. Write them to Google Sheets with evidence and outreach angles. Keep an XLSX backup."
+      createInitialGardenState(),
+      workCommand,
     );
 
-    expect(next.commands).toHaveLength(1);
-    expect(next.agents).toHaveLength(1);
-    expect(next.workRuns).toHaveLength(1);
+    expect(next.commands[0]).toMatchObject({
+      route: "ambiguous",
+      status: "awaiting-route",
+      mainAgentId: next.agents[0].id,
+    });
+    expect(next.workRuns).toHaveLength(0);
+  });
+
+  it("turns an explicit visible-run command into a planned Work Run", () => {
+    const { state: next } = submitCommand(
+      createInitialGardenState(),
+      "Run visibly: find current browser automation tools and write a report.",
+    );
 
     expect(next.commands[0]).toMatchObject({
       route: "work-run",
@@ -42,120 +95,97 @@ describe("Garden command routing", () => {
       mainAgentId: next.agents[0].id,
       workRunId: next.workRuns[0].id,
     });
-
     expect(next.workRuns[0]).toMatchObject({
       status: "planning",
-      title: "Find Blueberry sales leads",
+      planStatus: "drafting",
     });
-    expect(next.workRuns[0].plan.destination.primary).toBe("Google Sheets");
-    expect(next.workRuns[0].plan.destination.backup).toBe("XLSX");
+    expect(next.workRuns[0].plan.destination.primary).toBe(
+      "Output artifact in the Garden",
+    );
+    expect(next.workRuns[0].plan.outputColumns).toEqual([]);
   });
 
-  it("approving a planned Work Run creates visible Berries and telemetry", () => {
-    const { state: planned } = submitCommand(createInitialGardenState(), demoCommand);
+  it("does not surface approve-plan until the generated plan is ready", () => {
+    const planned = planWorkCommand();
+    const draftingDirectory = getAgentDirectoryView(
+      planned,
+      planned.agents[0].id,
+      null,
+    );
+
+    expect(draftingDirectory.active[0].approval.kind).toBe("none");
+
+    const ready = setWorkRunPlan(
+      planned,
+      planned.workRuns[0].id,
+      createPromptPlanDraft(workCommand),
+    );
+    const readyDirectory = getAgentDirectoryView(
+      ready,
+      ready.agents[0].id,
+      null,
+    );
+
+    expect(ready.workRuns[0].planStatus).toBe("ready");
+    expect(readyDirectory.active[0].approval.kind).toBe("approve-plan");
+  });
+
+  it("approving a planned Work Run starts it without seeding fake outputs", () => {
+    const planned = planWorkCommand();
 
     const running = approveWorkRun(planned, planned.workRuns[0].id);
 
     expect(running.workRuns[0].status).toBe("running");
-    expect(getVisibleBerries(running).map((berry) => berry.kind)).toEqual([
-      "tab",
-      "tab",
-      "tab",
-      "sheet",
-      "xlsx",
-    ]);
-    expect(running.telemetry[0]).toMatchObject({
-      kind: "intent",
-      label: "Understand Strawberry's target customers",
-      berryId: "berry-strawberry-home",
-    });
+    expect(running.agents[0].currentLabel).toBe("Starting Work Run");
+    expect(running.berries).toHaveLength(0);
+    expect(running.telemetry).toHaveLength(0);
   });
 
-  it("routes a work-shaped question as ambiguous and waits for the user to choose", () => {
-    const { state: next } = submitCommand(
+  it("choosing routes and upgrading commands preserve the visible-run contract", () => {
+    const { state: pending } = submitCommand(
       createInitialGardenState(),
-      "What companies might buy Blueberry?"
+      "What browser automation tools should we compare?",
     );
 
-    expect(next.commands[0]).toMatchObject({
+    expect(pending.commands[0]).toMatchObject({
       route: "ambiguous",
       status: "awaiting-route",
     });
-    // No Work Run is created until the user picks quick vs visible.
-    expect(next.workRuns).toHaveLength(0);
-  });
 
-  it("choosing the visible route turns an ambiguous command into a planned Work Run", () => {
-    const { state: pending } = submitCommand(
-      createInitialGardenState(),
-      "What companies might buy Blueberry?"
-    );
-
-    const next = chooseRoute(pending, pending.commands[0].id, "work-run");
-
-    expect(next.commands[0]).toMatchObject({
+    const visible = chooseRoute(pending, pending.commands[0].id, "work-run");
+    expect(visible.commands[0]).toMatchObject({
       route: "work-run",
       status: "planning",
-      workRunId: next.workRuns[0].id,
+      workRunId: visible.workRuns[0].id,
     });
-    expect(next.workRuns[0].status).toBe("planning");
-  });
 
-  it("choosing the quick route completes an ambiguous command without a Work Run", () => {
-    const { state: pending } = submitCommand(
-      createInitialGardenState(),
-      "What companies might buy Blueberry?"
-    );
-
-    const next = chooseRoute(pending, pending.commands[0].id, "quick");
-
-    expect(next.commands[0]).toMatchObject({ route: "quick", status: "complete" });
-    expect(next.workRuns).toHaveLength(0);
-  });
-
-  it("upgrades a completed quick command into a planned Work Run", () => {
-    const { state: quick } = submitCommand(createInitialGardenState(), "hello there");
-    expect(quick.commands[0].status).toBe("complete");
-
-    const next = upgradeCommand(quick, quick.commands[0].id);
-
-    expect(next.commands[0]).toMatchObject({
+    const { state: quick } = submitCommand(createInitialGardenState(), "hello");
+    const upgraded = upgradeCommand(quick, quick.commands[0].id);
+    expect(upgraded.commands[0]).toMatchObject({
       route: "work-run",
       status: "planning",
-      workRunId: next.workRuns[0].id,
     });
-    expect(next.workRuns[0].status).toBe("planning");
   });
 });
 
 describe("Plan editing before approval", () => {
   it("merges edits into a planning run's plan", () => {
-    const { state: planned } = submitCommand(
-      createInitialGardenState(),
-      demoCommand
-    );
+    const planned = planWorkCommand();
 
     const edited = editWorkRunPlan(planned, planned.workRuns[0].id, {
-      sources: ["Strawberry product page only"],
-      outputColumns: ["Company", "Website"],
+      sources: ["Vendor documentation"],
+      outputColumns: ["Tool", "Website"],
     });
 
-    expect(edited.workRuns[0].plan.sources).toEqual([
-      "Strawberry product page only",
-    ]);
-    expect(edited.workRuns[0].plan.outputColumns).toEqual([
-      "Company",
-      "Website",
-    ]);
-    // Untouched sections survive.
-    expect(edited.workRuns[0].plan.destination.primary).toBe("Google Sheets");
+    expect(edited.workRuns[0].plan.sources).toEqual(["Vendor documentation"]);
+    expect(edited.workRuns[0].plan.outputColumns).toEqual(["Tool", "Website"]);
+    expect(edited.workRuns[0].plan.destination.primary).toBe(
+      "Output artifact in the Garden",
+    );
   });
 
   it("refuses edits once the run is no longer planning", () => {
-    const running = approveWorkRun(
-      submitCommand(createInitialGardenState(), demoCommand).state,
-      "work-run-1"
-    );
+    const running = approveWorkRun(planWorkCommand(), "work-run-1");
 
     const edited = editWorkRunPlan(running, "work-run-1", {
       sources: ["nope"],
@@ -166,48 +196,47 @@ describe("Plan editing before approval", () => {
 });
 
 describe("Source berry choice on completion", () => {
-  const running = (): ReturnType<typeof createInitialGardenState> =>
-    approveWorkRun(
-      submitCommand(createInitialGardenState(), demoCommand).state,
-      "work-run-1"
-    );
+  it("collapses source tab berries off the map by default", () => {
+    const done = completeWorkRun(runningWithBerries(), "work-run-1");
 
-  it("collapses source berries off the map by default", () => {
-    const done = completeWorkRun(running(), "work-run-1");
-    const sources = done.berries.filter((b) =>
-      b.id.startsWith("berry-strawberry")
+    expect(done.berries.find((b) => b.id === "berry-source-tab")).toMatchObject(
+      {
+        onMap: false,
+        status: "complete",
+      },
     );
-    expect(sources.length).toBeGreaterThan(0);
-    expect(sources.every((b) => !b.onMap)).toBe(true);
+    expect(done.berries.find((b) => b.id === "berry-report")).toMatchObject({
+      onMap: true,
+      status: "complete",
+    });
   });
 
-  it("keeps source berries visible when the user chooses 'keep'", () => {
-    const done = completeWorkRun(running(), "work-run-1", "keep");
-    const sources = done.berries.filter((b) =>
-      b.id.startsWith("berry-strawberry")
+  it("keeps source tab berries visible when the user chooses keep", () => {
+    const done = completeWorkRun(runningWithBerries(), "work-run-1", "keep");
+
+    expect(done.berries.find((b) => b.id === "berry-source-tab")?.onMap).toBe(
+      true,
     );
-    expect(sources.every((b) => b.onMap)).toBe(true);
   });
 
-  it("removes source berries entirely when the user chooses 'close'", () => {
-    const done = completeWorkRun(running(), "work-run-1", "close");
-    expect(
-      done.berries.some((b) => b.id.startsWith("berry-strawberry"))
-    ).toBe(false);
-    // Output berries survive.
-    expect(done.berries.some((b) => b.kind === "sheet")).toBe(true);
+  it("removes source tab berries entirely when the user chooses close", () => {
+    const done = completeWorkRun(runningWithBerries(), "work-run-1", "close");
+
+    expect(done.berries.some((b) => b.id === "berry-source-tab")).toBe(false);
+    expect(done.berries.some((b) => b.id === "berry-report")).toBe(true);
   });
 });
 
 describe("Work Run failure and recovery", () => {
-  const runningState = (): ReturnType<typeof createInitialGardenState> =>
-    approveWorkRun(
-      submitCommand(createInitialGardenState(), demoCommand).state,
-      "work-run-1"
-    );
+  const runningState = (): GardenState =>
+    approveWorkRun(planWorkCommand(), "work-run-1");
 
   it("blocking a run surfaces the blocker on the run, agent, and telemetry", () => {
-    const blocked = blockWorkRun(runningState(), "work-run-1", "Page failed to load");
+    const blocked = blockWorkRun(
+      runningState(),
+      "work-run-1",
+      "Page failed to load",
+    );
 
     expect(blocked.workRuns[0].status).toBe("blocked");
     expect(blocked.agents[0].state).toBe("blocked");
@@ -218,7 +247,11 @@ describe("Work Run failure and recovery", () => {
   });
 
   it("retrying a blocked run resumes it with a visible retry attempt", () => {
-    const blocked = blockWorkRun(runningState(), "work-run-1", "Page failed to load");
+    const blocked = blockWorkRun(
+      runningState(),
+      "work-run-1",
+      "Page failed to load",
+    );
 
     const retried = retryWorkRun(blocked, "work-run-1");
 
@@ -242,96 +275,78 @@ describe("Work Run failure and recovery", () => {
 
 describe("Berry switcher", () => {
   it("matches berries by title, subtitle, or kind, case-insensitively", () => {
-    const running = approveWorkRun(
-      submitCommand(createInitialGardenState(), demoCommand).state,
-      "work-run-1"
-    );
-    const entries = getLedgerEntries(running);
+    const entries = getLedgerEntries(runningWithBerries());
 
     expect(filterBerrySwitcher(entries, "")).toHaveLength(entries.length);
-    expect(
-      filterBerrySwitcher(entries, "STRAWBERRY").every((entry) =>
-        entry.title.toLowerCase().includes("strawberry")
-      )
-    ).toBe(true);
-    expect(
-      filterBerrySwitcher(entries, "sheet").some((entry) => entry.kind === "sheet")
-    ).toBe(true);
+    expect(filterBerrySwitcher(entries, "source")).toHaveLength(1);
+    expect(filterBerrySwitcher(entries, "summary")).toHaveLength(1);
     expect(filterBerrySwitcher(entries, "zzz-no-match")).toHaveLength(0);
   });
 });
 
 describe("Command Log", () => {
   it("lists every command with its tool/action trace, newest last", () => {
-    const { state: planned } = submitCommand(
-      createInitialGardenState(),
-      demoCommand
+    const planned = planWorkCommand();
+    const running = advanceWorkRun(
+      approveWorkRun(planned, planned.workRuns[0].id),
+      planned.workRuns[0].id,
     );
-    const running = approveWorkRun(planned, planned.workRuns[0].id);
     const { state: withQuick } = submitCommand(running, "hello there");
 
     const log = getCommandLog(withQuick);
 
     expect(log).toHaveLength(2);
-    expect(log[0]).toMatchObject({ route: "work-run", text: demoCommand });
-    expect(log[0].trace.length).toBeGreaterThan(0);
-    expect(log[0].trace[0]).toMatchObject({ kind: "intent" });
+    expect(log[0]).toMatchObject({ route: "work-run", text: workCommand });
+    expect(log[0].trace[0]).toMatchObject({ kind: "action" });
     expect(log[1]).toMatchObject({ route: "quick", trace: [] });
   });
 });
 
 describe("Intel Ledger and work run completion", () => {
-  it("lists every Berry in the ledger even when it is hidden from the map", () => {
-    const running = approveWorkRun(
-      submitCommand(createInitialGardenState(), demoCommand).state,
-      "work-run-1"
-    );
-    const completed = completeWorkRun(running, "work-run-1");
+  it("lists every real Berry in the ledger even when it is hidden from the map", () => {
+    const completed = completeWorkRun(runningWithBerries(), "work-run-1");
 
     const ledger = getLedgerEntries(completed);
-    const hiddenReport = ledger.find((entry) => entry.id === "berry-brief-report");
 
-    expect(getVisibleBerries(completed)).toHaveLength(3);
-    expect(ledger.length).toBeGreaterThanOrEqual(7);
-    expect(hiddenReport).toMatchObject({
-      title: "brief.md",
-      onMap: false,
-      filePath: expect.stringContaining("artifacts/brief.md"),
-    });
+    expect(getVisibleBerries(completed).map((berry) => berry.kind)).toEqual([
+      "report",
+    ]);
+    expect(ledger.map((entry) => entry.id)).toEqual([
+      "berry-source-tab",
+      "berry-report",
+    ]);
   });
 
   it("can re-pin a ledger artifact back onto the Garden map", () => {
-    const completed = completeWorkRun(
-      approveWorkRun(
-        submitCommand(createInitialGardenState(), demoCommand).state,
-        "work-run-1"
+    const completed = completeWorkRun(runningWithBerries(), "work-run-1");
+
+    const restored = showBerryOnGarden(completed, "berry-source-tab");
+
+    expect(
+      getVisibleBerries(restored).some(
+        (berry) => berry.id === "berry-source-tab",
       ),
-      "work-run-1"
-    );
-
-    const restored = showBerryOnGarden(completed, "berry-brief-report");
-
-    expect(getVisibleBerries(restored).some((berry) => berry.id === "berry-brief-report")).toBe(
-      true
-    );
+    ).toBe(true);
   });
 
   it("syncs open browser tabs into tab Berries when no Work Run is active", () => {
     const synced = syncTabBerries(createInitialGardenState(), [
       {
         browserTabId: "tab-1",
-        title: "Strawberry Browser",
-        url: "https://strawberrybrowser.com/",
+        title: "Example Page",
+        url: "https://example.com/",
         screenshotDataUrl: "data:image/png;base64,abc",
       },
       {
         browserTabId: "tab-2",
-        title: "Google",
+        title: "Search",
         url: "https://www.google.com/",
       },
     ]);
 
-    const tabBerries = getVisibleBerries(synced).filter((berry) => berry.browserTabId);
+    const tabBerries = getVisibleBerries(synced).filter(
+      (berry) => berry.browserTabId,
+    );
     expect(tabBerries).toHaveLength(2);
     expect(tabBerries[0]).toMatchObject({
       id: "berry-tab-tab-1",
@@ -347,41 +362,64 @@ describe("Intel Ledger and work run completion", () => {
     const synced = syncTabBerries(createInitialGardenState(), [
       {
         browserTabId: "tab-1",
-        title: "Strawberry Browser",
-        url: "https://strawberrybrowser.com/",
+        title: "Example Page",
+        url: "https://example.com/",
         isActive: true,
       },
     ]);
 
     const tabBerry = getVisibleBerries(synced).find(
-      (berry) => berry.browserTabId === "tab-1"
+      (berry) => berry.browserTabId === "tab-1",
     );
     expect(tabBerry?.isActive).toBe(true);
   });
 
   it("defaults a tab Berry to inactive when the snapshot omits isActive", () => {
     const synced = syncTabBerries(createInitialGardenState(), [
-      { browserTabId: "tab-1", title: "Google", url: "https://www.google.com/" },
+      {
+        browserTabId: "tab-1",
+        title: "Search",
+        url: "https://www.google.com/",
+      },
     ]);
 
     const tabBerry = getVisibleBerries(synced).find(
-      (berry) => berry.browserTabId === "tab-1"
+      (berry) => berry.browserTabId === "tab-1",
     );
     expect(tabBerry?.isActive).toBe(false);
   });
 
   it("moves the active marker to the newly-focused tab on re-sync, keeping positions", () => {
     const first = syncTabBerries(createInitialGardenState(), [
-      { browserTabId: "tab-1", title: "Strawberry", url: "https://strawberrybrowser.com/", isActive: true },
-      { browserTabId: "tab-2", title: "Google", url: "https://www.google.com/", isActive: false },
+      {
+        browserTabId: "tab-1",
+        title: "Example Page",
+        url: "https://example.com/",
+        isActive: true,
+      },
+      {
+        browserTabId: "tab-2",
+        title: "Search",
+        url: "https://www.google.com/",
+        isActive: false,
+      },
     ]);
 
     const tab1Before = first.berries.find((b) => b.browserTabId === "tab-1");
 
-    // User switches to tab-2; a fresh snapshot arrives with the flag flipped.
     const second = syncTabBerries(first, [
-      { browserTabId: "tab-1", title: "Strawberry", url: "https://strawberrybrowser.com/", isActive: false },
-      { browserTabId: "tab-2", title: "Google", url: "https://www.google.com/", isActive: true },
+      {
+        browserTabId: "tab-1",
+        title: "Example Page",
+        url: "https://example.com/",
+        isActive: false,
+      },
+      {
+        browserTabId: "tab-2",
+        title: "Search",
+        url: "https://www.google.com/",
+        isActive: true,
+      },
     ]);
 
     const tab1After = second.berries.find((b) => b.browserTabId === "tab-1");
@@ -389,16 +427,42 @@ describe("Intel Ledger and work run completion", () => {
 
     expect(tab1After?.isActive).toBe(false);
     expect(tab2After?.isActive).toBe(true);
-    // Position is preserved across re-sync (not reset to layout defaults).
     expect(tab1After?.x).toBe(tab1Before?.x);
     expect(tab1After?.y).toBe(tab1Before?.y);
   });
 
-  it("does not overwrite demo Work Run Berries while a run is active", () => {
-    const running = approveWorkRun(
-      submitCommand(createInitialGardenState(), demoCommand).state,
-      "work-run-1"
+  it("moves any Berry kind and preserves the placement across tab sync", () => {
+    const first = syncTabBerries(createInitialGardenState(), [
+      {
+        browserTabId: "tab-1",
+        title: "Example Page",
+        url: "https://example.com/",
+      },
+    ]);
+
+    const moved = moveBerry(first, "berry-tab-tab-1", {
+      x: 360.4,
+      y: 192.6,
+    });
+    expect(moved.berries.find((b) => b.id === "berry-tab-tab-1")).toMatchObject(
+      { x: 360, y: 193 },
     );
+
+    const resynced = syncTabBerries(moved, [
+      {
+        browserTabId: "tab-1",
+        title: "Example Page",
+        url: "https://example.com/",
+      },
+    ]);
+
+    expect(
+      resynced.berries.find((b) => b.id === "berry-tab-tab-1"),
+    ).toMatchObject({ x: 360, y: 193 });
+  });
+
+  it("does not overwrite Work Run Berries while a run is active", () => {
+    const running = runningWithBerries();
 
     const synced = syncTabBerries(running, [
       {
@@ -408,35 +472,27 @@ describe("Intel Ledger and work run completion", () => {
       },
     ]);
 
-    expect(getVisibleBerries(synced).some((berry) => berry.browserTabId)).toBe(
-      false
-    );
-    expect(getVisibleBerries(synced).length).toBe(5);
+    expect(getVisibleBerries(synced).map((berry) => berry.id)).toEqual([
+      "berry-source-tab",
+      "berry-report",
+    ]);
   });
 
   it("returns readable markdown for report Berries", () => {
-    const completed = completeWorkRun(
-      approveWorkRun(
-        submitCommand(createInitialGardenState(), demoCommand).state,
-        "work-run-1"
-      ),
-      "work-run-1"
+    const report = runningWithBerries().berries.find(
+      (berry) => berry.id === "berry-report",
     );
-    const report = completed.berries.find((berry) => berry.id === "berry-brief-report");
 
     expect(report).toBeDefined();
-    expect(getReaderContent(report!)).toContain("Strawberry ICP");
+    expect(getReaderContent(report!)).toBe("# summary.md\n\nGenerated report");
   });
 
-  it("advances a running Work Run with additional visible telemetry", () => {
-    const running = approveWorkRun(
-      submitCommand(createInitialGardenState(), demoCommand).state,
-      "work-run-1"
-    );
+  it("advances a running Work Run with generic telemetry", () => {
+    const running = approveWorkRun(planWorkCommand(), "work-run-1");
 
     const advanced = advanceWorkRun(running, "work-run-1");
 
     expect(advanced.telemetry.length).toBeGreaterThan(running.telemetry.length);
-    expect(advanced.agents[0].currentLabel.toLowerCase()).toContain("sales");
+    expect(advanced.agents[0].currentLabel).toBe("Advancing Work Run");
   });
 });

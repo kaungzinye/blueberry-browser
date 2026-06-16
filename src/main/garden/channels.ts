@@ -19,6 +19,13 @@ export const GARDEN_RESOLVE_APPROVAL_CHANNEL = "garden-resolve-approval";
 /** Renderer → main: deliver a follow-up turn to a Main Agent session. */
 export const GARDEN_SUBMIT_TURN_CHANNEL = "garden-submit-turn";
 
+export const GARDEN_AGENT_SWITCHER_CYCLE_CHANNEL =
+  "garden-agent-switcher-cycle";
+export const GARDEN_AGENT_SWITCHER_COMMIT_CHANNEL =
+  "garden-agent-switcher-commit";
+export const GARDEN_AGENT_SWITCHER_CANCEL_CHANNEL =
+  "garden-agent-switcher-cancel";
+
 /**
  * A pending Approval gate: a high-consequence Browser action the agent has
  * hard-stopped before, awaiting the user's Approve/Deny. Rendered in whichever
