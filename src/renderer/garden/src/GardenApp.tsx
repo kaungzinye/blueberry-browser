@@ -27,7 +27,6 @@ import {
   GardenState,
   getCommandLog,
   getLedgerEntries,
-  getReaderContent,
   getVisibleBerries,
   TelemetryEvent,
   type SourceBerryChoice,
@@ -89,6 +88,8 @@ export const GardenApp: React.FC = () => {
   );
   const [selectedBerryId, setSelectedBerryId] = useState<string | null>(null);
   const [readerBerryId, setReaderBerryId] = useState<string | null>(null);
+  const [readerContent, setReaderContent] = useState<string | null>(null);
+  const readerRequestRef = useRef(0);
   // Berries the user has opened. A completed/blocked Berry rings once for
   // attention, then drops its ring after it's been opened (see TelemetryLayer).
   const [seenBerryIds, setSeenBerryIds] = useState<Set<string>>(
@@ -227,7 +228,6 @@ export const GardenApp: React.FC = () => {
 
   const selectedAgentLabel = selectedCommand?.text.trim() || undefined;
   const readerBerry = state.berries.find((berry) => berry.id === readerBerryId);
-  const readerContent = readerBerry ? getReaderContent(readerBerry) : null;
 
   // Seed from the main-owned store and subscribe to full-snapshot broadcasts
   // (ADR-0003): main is the source of truth, this renderer is a view.
@@ -375,6 +375,8 @@ export const GardenApp: React.FC = () => {
       if (event.key === "Escape") {
         if (readerBerryId) {
           setReaderBerryId(null);
+          setReaderContent(null);
+          readerRequestRef.current += 1;
         } else if (ledgerOpen) {
           setLedgerOpen(false);
         } else if (agentSwitcher.open) {
@@ -544,6 +546,68 @@ export const GardenApp: React.FC = () => {
     void window.gardenAPI?.resolveApproval(pendingApproval.id, approved);
   };
 
+  const openReportReader = (berry: Berry): void => {
+    const requestId = readerRequestRef.current + 1;
+    readerRequestRef.current = requestId;
+    setReaderBerryId(berry.id);
+
+    if (!berry.filePath) {
+      setReaderContent(
+        `# ${berry.title}\n\nNo artifact file is attached to this report.`,
+      );
+      return;
+    }
+
+    if (!window.gardenAPI) {
+      setReaderContent(
+        `# ${berry.title}\n\nCould not read artifact file.\n\nGarden API is unavailable.`,
+      );
+      return;
+    }
+
+    setReaderContent(`# ${berry.title}\n\nLoading artifact file...`);
+    void window.gardenAPI
+      .readArtifact(berry.filePath)
+      .then((result) => {
+        if (readerRequestRef.current !== requestId) return;
+        setReaderContent(
+          result.ok
+            ? result.content
+            : `# ${berry.title}\n\nCould not read artifact file.\n\n${result.error}`,
+        );
+      })
+      .catch((error) => {
+        if (readerRequestRef.current !== requestId) return;
+        setReaderContent(
+          `# ${berry.title}\n\nCould not read artifact file.\n\n${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+  };
+
+  const openArtifactFile = (berry: Berry): void => {
+    if (!berry.filePath) return;
+    void window.gardenAPI
+      ?.openArtifact(berry.filePath)
+      .then((result) => {
+        if (!result?.ok) {
+          setLatestAgentReply(
+            `Could not open ${berry.title}: ${
+              result?.error ?? "artifact file is unavailable"
+            }`,
+          );
+        }
+      })
+      .catch((error) => {
+        setLatestAgentReply(
+          `Could not open ${berry.title}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+  };
+
   const handleOpenBerry = (berry: Berry): void => {
     // Opening a Berry attends to it — clear its attention ring.
     markBerrySeen(berry.id);
@@ -555,7 +619,12 @@ export const GardenApp: React.FC = () => {
     if (berry.kind === "tab") return;
 
     if (berry.kind === "report") {
-      setReaderBerryId(berry.id);
+      openReportReader(berry);
+      return;
+    }
+
+    if (berry.filePath) {
+      openArtifactFile(berry);
       return;
     }
 
@@ -571,7 +640,7 @@ export const GardenApp: React.FC = () => {
     setSelectedBerryId(berryId);
     if (berry.kind === "report") {
       markBerrySeen(berryId);
-      setReaderBerryId(berryId);
+      openReportReader(berry);
     }
   };
 
@@ -627,6 +696,8 @@ export const GardenApp: React.FC = () => {
   const handleSwitchGarden = (name: string): void => {
     setSelectedBerryId(null);
     setReaderBerryId(null);
+    setReaderContent(null);
+    readerRequestRef.current += 1;
     void window.gardenAPI?.switchGarden?.(name);
   };
 
@@ -662,7 +733,11 @@ export const GardenApp: React.FC = () => {
       void window.gardenAPI?.dispatch({ type: "show-berry", berryId });
     }
     setSelectedBerryId(berryId);
-    if (berry.kind === "report") setReaderBerryId(berryId);
+    if (berry.kind === "report") {
+      openReportReader(berry);
+      return;
+    }
+    if (berry.filePath) openArtifactFile(berry);
   };
 
   const latestTelemetry = state.telemetry.at(-1);
@@ -773,11 +848,15 @@ export const GardenApp: React.FC = () => {
         />
       )}
 
-      {readerBerry && readerContent && (
+      {readerBerry && readerContent !== null && (
         <ReaderPane
           berry={readerBerry}
           content={readerContent}
-          onBack={() => setReaderBerryId(null)}
+          onBack={() => {
+            setReaderBerryId(null);
+            setReaderContent(null);
+            readerRequestRef.current += 1;
+          }}
         />
       )}
     </main>

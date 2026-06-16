@@ -115,6 +115,14 @@ declare global {
     hint?: string;
   }
 
+  type ArtifactReadResult =
+    | { ok: true; content: string }
+    | { ok: false; error: string };
+
+  type ArtifactOpenResult =
+    | { ok: true; error?: undefined }
+    | { ok: false; error: string };
+
   interface GardenAPI {
     openUrl: (
       url: string,
@@ -122,6 +130,8 @@ declare global {
     focusTab: (tabId: string) => Promise<boolean>;
     getTabBerries: () => Promise<TabBerrySnapshot[]>;
     showGarden: () => Promise<boolean>;
+    readArtifact: (filePath: string) => Promise<ArtifactReadResult>;
+    openArtifact: (filePath: string) => Promise<ArtifactOpenResult>;
     hasApiKey: () => Promise<boolean>;
     // Garden directory (multi-garden + Scratch, PRD 18-22)
     listGardens: () => Promise<GardenDirectory>;

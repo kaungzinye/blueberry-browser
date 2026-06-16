@@ -28,6 +28,10 @@ const gardenAPI = {
       TabBerrySnapshot[]
     >,
   showGarden: () => electronAPI.ipcRenderer.invoke("garden-show"),
+  readArtifact: (filePath: string) =>
+    electronAPI.ipcRenderer.invoke("garden-read-artifact", filePath),
+  openArtifact: (filePath: string) =>
+    electronAPI.ipcRenderer.invoke("garden-open-artifact", filePath),
 
   // ── Garden directory (multi-garden + Scratch, PRD 18-22) ─────────────────
   listGardens: () => electronAPI.ipcRenderer.invoke("garden-list"),

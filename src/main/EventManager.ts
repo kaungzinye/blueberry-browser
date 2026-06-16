@@ -1,4 +1,7 @@
-import { ipcMain, WebContents } from "electron";
+import { ipcMain, shell, WebContents } from "electron";
+import { readFile } from "fs/promises";
+import { homedir } from "os";
+import { join } from "path";
 import type { Window } from "./Window";
 import { hasLLMApiKey } from "./llmConfig";
 import type { GardenIntent } from "./garden/intents";
@@ -323,6 +326,40 @@ export class EventManager {
       return true;
     });
 
+    ipcMain.handle("garden-read-artifact", async (_, filePath: string) => {
+      try {
+        const resolvedPath = this.resolveArtifactPath(filePath);
+        const content = await readFile(resolvedPath, "utf-8");
+        return { ok: true, content };
+      } catch (error) {
+        return {
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Unable to read artifact file.",
+        };
+      }
+    });
+
+    ipcMain.handle("garden-open-artifact", async (_, filePath: string) => {
+      try {
+        const resolvedPath = this.resolveArtifactPath(filePath);
+        const error = await shell.openPath(resolvedPath);
+        return error
+          ? { ok: false, error }
+          : { ok: true, error: undefined };
+      } catch (error) {
+        return {
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Unable to open artifact file.",
+        };
+      }
+    });
+
     // ── Garden directory (multi-garden + Scratch, PRD 18-22) ───────────────
     ipcMain.handle("garden-list", () =>
       this.mainWindow.gardenController.listGardens(),
@@ -358,6 +395,13 @@ export class EventManager {
     ipcMain.handle("set-address-expanded", (_, height: number) => {
       this.mainWindow.topBar.setOverlayHeight(height);
     });
+  }
+
+  private resolveArtifactPath(filePath: string): string {
+    if (filePath.startsWith("~/")) {
+      return join(homedir(), filePath.slice(2));
+    }
+    return filePath;
   }
 
   private handleDarkModeEvents(): void {

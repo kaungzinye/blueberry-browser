@@ -10,7 +10,7 @@
 import type { WebContents } from "electron";
 import { homedir } from "os";
 import { join } from "path";
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { access, mkdir, readFile, writeFile } from "fs/promises";
 import {
   createInitialGardenState,
   type GardenState,
@@ -159,7 +159,7 @@ export class GardenStore {
       const raw = await readFile(this.persistPath, "utf-8");
       const parsed = JSON.parse(raw) as { state?: GardenState };
       if (!parsed.state) return false;
-      this.state = rehydrate(parsed.state);
+      this.state = await pruneMissingArtifactBerries(rehydrate(parsed.state));
       this.broadcast();
       return true;
     } catch {
@@ -212,4 +212,33 @@ const rehydrate = (state: GardenState): GardenState => {
         : berry,
     ),
   };
+};
+
+const pruneMissingArtifactBerries = async (
+  state: GardenState,
+): Promise<GardenState> => {
+  const keep = await Promise.all(
+    state.berries.map(async (berry) => {
+      if (!berry.filePath) return true;
+      try {
+        await access(resolveStoredPath(berry.filePath));
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+  );
+
+  if (keep.every(Boolean)) return state;
+  return {
+    ...state,
+    berries: state.berries.filter((_, index) => keep[index]),
+  };
+};
+
+const resolveStoredPath = (filePath: string): string => {
+  if (filePath.startsWith("~/")) {
+    return join(homedir(), filePath.slice(2));
+  }
+  return filePath;
 };
