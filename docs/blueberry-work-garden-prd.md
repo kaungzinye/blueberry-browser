@@ -24,7 +24,7 @@ Write them to Google Sheets with evidence and outreach angles.
 Keep an XLSX backup.
 ```
 
-The user approves a progressive plan, watches the agent open Strawberry pages as Tab Berries, sees target segments extracted, sees open-web prospecting happen through source Berries, and watches qualified lead rows flow into a Google Sheet Berry. An XLSX backup Berry is generated at the end. The completed Work Run collapses into a summary Berry connected to visible output Berries and a faint collapsed source cluster.
+The user approves a progressive plan, watches the agent open Strawberry pages as Tab Berries, sees target segments extracted, sees open-web prospecting happen through source Berries, and watches qualified lead rows flow into a Google Sheet Berry. An XLSX backup Berry is generated at the end. The completed Work Run leaves concrete output Berries visible; the run summary and provenance live in the selected Agent row/tab's Unit history and the Command Log rather than as a physical Garden object.
 
 ## User Stories
 
@@ -63,21 +63,21 @@ The user approves a progressive plan, watches the agent open Strawberry pages as
 33. As a user watching an agent, I want the companion to show work rather than personality, so that the UI stays professional.
 34. As a user watching a Work Run, I want the agent to visibly move between Berries, so that I can see where its attention is.
 35. As a user watching a Work Run, I want visual action icons and short labels, so that I understand what the agent is doing without reading a log.
-36. As a user watching a Work Run, I want data-flow animations from source Berries to destination Berries, so that extraction and writing feel observable.
+36. As a user watching a Work Run, I want data-flow animations from source Berries to writing-target Berries, so that extraction and writing feel observable.
 37. As a user watching a Work Run, I want Berry badges for visited, reading, extracting, writing, complete, blocked, and needs-review states, so that object status is visible.
 38. As a user watching a Work Run, I want agent work to be visible even when I do not open an inspector, so that the Garden itself communicates execution.
-39. As a user wanting deeper transparency, I want selected agents and Berries to show local traces, so that I can inspect what happened there.
+39. As a user wanting deeper transparency, I want selected agents and Berries to show local traces, so that I can inspect what happened from the thing I am looking at.
 40. As a user wanting full transparency, I want the Command Log to store exact tool/action history, so that I can audit browser-use execution.
 41. As a user, I want "thinking" to mean operational intent, observation, decision, next step, and tool call, so that I get useful transparency without raw model reasoning.
 42. As a user, I want to follow an agent with the camera, so that I can watch the workflow unfold.
 43. As a user, I want to center the camera on a selected agent or Berry, so that I can quickly focus on important work.
 44. As a user, I want to cycle through agents and Berries, so that I can navigate the Garden like an operational workspace.
-45. As a user, I want to pause, retry, skip, redirect, or take over when blocked, so that failures are recoverable.
-46. As a user, I want blockers to appear visually on the relevant agent and Berry, so that failures do not hide in logs.
+45. As a user, I want to pause, retry, skip, redirect, or take over from the Agent row/tab when blocked, so that failures are recoverable from the agent control surface.
+46. As a user, I want blockers to appear visually on the relevant agent and Berry as spatial warning rings, so that I can see where the failure happened without turning the Garden into a control surface.
 47. As a user, I want auto-retry attempts to be visible, so that the agent does not silently loop.
 48. As a user, I want open-web discovery for the demo, so that Blueberry proves real browser-use behavior rather than only a curated script.
 49. As a user, I want the open-web run to be bounded by action and search budgets, so that the agent does not wander forever.
-50. As a user, I want rejected and duplicate candidates to appear as telemetry, so that I understand how the final lead list was filtered.
+50. As a user, I want rejected and duplicate candidates recorded as agent actions in Unit history and Command Log, so that I understand how the final lead list was filtered without cluttering the Garden.
 51. As a sales user, I want Strawberry's public pages to be opened as source Berries, so that I can see the agent derive target segments from a competitor.
 52. As a sales user, I want the agent to infer Strawberry's target customers, so that Blueberry's lead search is grounded in market positioning.
 53. As a sales user, I want candidate companies to open as source Berries, so that each lead has visible provenance.
@@ -86,11 +86,11 @@ The user approves a progressive plan, watches the agent open Strawberry pages as
 56. As a sales user, I want evidence URLs for each lead, so that I can verify why a company was included.
 57. As a sales user, I want outreach angles generated but not sent, so that I get useful drafts without risky side effects.
 58. As a sales user, I want a completed lead-gen run to summarize leads found, sources inspected, rejected candidates, review items, Google Sheet, and XLSX backup, so that I can understand the outcome quickly.
-59. As a user, I want completed Work Runs to collapse into summary Berries, so that the Garden does not become cluttered.
+59. As a user, I want completed Work Runs to leave visible output Berries plus inspectable history, so that the Garden contains concrete things rather than meta objects about work.
 60. As a user, I want source Berries to collapse by default after completion, so that intermediate browser tabs do not overwhelm the Garden.
 61. As a user, I want to choose whether to collapse, keep open, or close source tabs, so that I can continue inspecting sources if needed.
-62. As a user, I want destination and output Berries to remain visible by default, so that final work stays easy to access.
-63. As a user, I want summary Berries to connect to output Berries and a faint source cluster, so that provenance remains visible without clutter.
+62. As a user, I want output Berries to remain visible by default, so that final work stays easy to access.
+63. As a user, I want output Berries and history views to preserve source provenance, so that I can inspect where outputs came from without adding a run object to the Garden.
 64. As a user, I want archive and delete actions for Work Runs, so that cleanup remains manual and understandable.
 65. As a user, I want deleting a Work Run to warn that external files are not deleted, so that I understand what is being removed.
 66. As a user, I want a Garden home with recent Work Runs, recent outputs, idle companion, suggestions, and Command Bar, so that I know what Blueberry can do before work starts.
@@ -115,17 +115,18 @@ The user approves a progressive plan, watches the agent open Strawberry pages as
 - Keep the left hideable sidebar for tabs only. Do not mix artifact Berries into the tab sidebar.
 - Add a Berry switcher/object palette for all Berries, including artifacts and outputs.
 - Use React DOM/CSS transforms as the primary Garden rendering foundation for MVP.
-- Use SVG for telemetry paths, source-to-destination flows, selection rings, and relationship lines.
+- Use SVG for telemetry paths, source-to-writing-target/output flows, selection rings, and relationship lines.
 - Use CSS transitions or requestAnimationFrame for agent movement.
 - Avoid PixiJS as the primary MVP renderer because rich React cards and Electron WebContentsViews do not fit naturally inside a canvas scene.
 - Keep PixiJS available as a future effects layer for dense particles, glow trails, or sprite animation.
 - Model the app hierarchy as Workspace -> Gardens -> Work Runs -> Berries.
 - Model a Berry as a persistent interactable Garden object, not only a hyperlink or only a tab.
-- Support Tab Berries, Artifact Berries, Destination Berries, and Work Run Summary Berries.
-- Treat Google Sheets as a Destination Berry for the lead-gen demo.
+- Support Tab Berries and Artifact Berries. Work Runs are execution state and history, not Berry kinds; source, writing target, and output are roles/states that normal Berries can take during a run.
+- Treat Google Sheets as a Sheet Berry that can act as the writing target for the lead-gen demo.
 - Treat XLSX backup as an output Artifact Berry.
 - Every Command creates or uses a Main Agent.
 - Route simple commands to compact responses and Command Log entries.
+- Do not render submitted commands or replies as faded physical text echoes on the Garden map; keep them in the Command Bar, HUD chat, Command Log, and Unit history.
 - Route complex, multi-step, multi-source, long-running, side-effectful, or explicitly delegated commands to Work Runs.
 - Allow simple commands to be upgraded into Work Runs.
 - Show a progressive plan before Work Run execution.
@@ -135,18 +136,19 @@ The user approves a progressive plan, watches the agent open Strawberry pages as
 - Build the first MVP around one real orchestrator with visible sub-worker phases rather than true parallel agents.
 - Represent phases such as search, read, extract, verify, and write.
 - Make the agent humanoid/companion-like, but avoid personality/customization as a feature focus.
+- Prioritize companion video loops for idle, walking, looking, typing, and blocked; thinking and cheer can fall back to idle for MVP.
 - Use operational telemetry instead of raw chain-of-thought.
 - Represent operational telemetry as intent, action, observation, decision, next step, and tool call.
 - Make telemetry visual-first in the Garden through movement, icons, short labels, animated paths, pulses, rings, and Berry badges.
 - Store exact chronological tool/action history in the Command Log.
-- Expose local trace for selected agents and selected Berries.
-- Add visual blocker states with Take over, Skip, Retry, and Redirect actions.
+- Expose run history primarily through the selected Agent row/tab's Unit history, with Command Log as the global audit view and selected Berry traces for local provenance.
+- Add visual blocker rings on the relevant agent/Berry, with Take over, Skip, Retry, Redirect, and approval actions handled from the Agent row/tab.
 - Make auto-retries visible.
-- Use source-to-destination flow for outputs.
-- Collapse completed Work Runs into Work Run Summary Berries by default.
+- Use source-to-writing-target/output flow for outputs.
+- Keep completed Work Run summaries in Command Log and Unit history rather than creating Work Run Summary Berries.
 - Keep output Berries visible after completion.
 - Ask the user what to do with source Tab Berries after completion, defaulting to Collapse sources.
-- Show a faint collapsed source cluster connected to the Work Run Summary Berry.
+- Preserve source provenance in Command Log and Unit history when source Berries are collapsed or closed.
 - Let users manually archive/delete/clean up Work Runs rather than auto-archiving.
 - Optimize the first demo around Strawberry product analysis and open-web lead generation.
 - Use Google Sheet columns: Company, Website, Segment, Why Blueberry fits, Evidence, Evidence URL, Suggested buyer, Outreach angle, Status.
@@ -219,6 +221,6 @@ The take-home recording should show:
 4. Agent visibly opening Strawberry pages, reading, extracting, searching, qualifying, and writing.
 5. Google Sheet Berry receiving rows and XLSX backup appearing.
 6. Optional inspection of an agent or Berry trace.
-7. Completed Work Run collapsed into a Summary Berry connected to visible outputs and a faint source cluster.
+7. Completed Work Run leaves visible outputs, with summary and provenance shown through Command Log or Unit history.
 
 The strongest implementation story is: Blueberry keeps the existing browser primitives, but reorganizes them around visible browser work. That avoids a risky runtime rewrite and focuses the assessment on the browser-use UX requested in the challenge.

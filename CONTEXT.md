@@ -15,6 +15,14 @@ _Avoid_: Project, canvas (unless discussing the map literally)
 A persistent, interactable Garden object. Berries can be tab-backed browsing contexts, external tool destinations, or agent-created artifacts.
 _Avoid_: Node, card, widget
 
+**Berry placement**:
+The user's persistent spatial arrangement of visible Berries on the Garden. Any visible Berry kind can be repositioned by dragging the selected Berry itself while the camera stays fixed; dragging empty Garden space moves the Garden view, not the Berry.
+_Avoid_: Tab placement, drag handle placement
+
+**Garden grid**:
+A persistent, visual-only world-space alignment aid drawn on the Garden so the user can judge centering and spacing. It moves and scales with the Garden content, uses major/minor lines for zoom legibility, and may show subtle center axes at the Garden origin; there is no center marker object, and the grid does not snap, constrain, or otherwise change Berry placement.
+_Avoid_: Snap grid, layout grid, center marker
+
 **Tab Berry**:
 A Berry backed by a live or restorable browser tab.
 _Avoid_: Tab (when meaning the Garden object, not the browser chrome tab)
@@ -24,8 +32,8 @@ A non-tab Berry produced or shaped by agents or users (lead, report, sheet, scri
 _Avoid_: Artifact (alone), output file
 
 **Command**:
-A unit of work the user starts via the Command Bar — goals, approvals, tool use, and outcomes — not a casual chat thread. Every Command has exactly one Main Agent and may gain Subagents when that Main Agent creates them. Has a **Command status** of in progress or completed for roster cycling.
-_Avoid_: Chat, prompt, message (for the user request entity)
+A unit of work the user starts via the Command Bar — goals, approvals, tool use, and outcomes — not a casual chat thread. Every Command has exactly one Main Agent and may gain Subagents when that Main Agent creates them; Commands live in the Command Log, Unit history, and HUD chat, not as physical text objects on the Garden. Has a **Command status** of in progress or completed for roster cycling.
+_Avoid_: Chat, prompt, message (for the user request entity), command echo
 
 **Command status**:
 Whether a Command is **in progress** (active work) or **completed** (done or idle). Set automatically when work finishes or goes idle, and by the user (mark done, reopen). Drives Main Agent cycle scope; cycle scope only filters by status, it does not define it.
@@ -61,8 +69,8 @@ A specialized agent working under one Main Agent (e.g. browser worker, writer, r
 _Avoid_: Worker phase, tool, skill, second Main Agent, default roster slot
 
 **Work Run**:
-A visualized execution of a complex Command inside a Garden. Work Runs show agents moving through Berries and producing outputs.
-_Avoid_: Job, pipeline, workflow (unless speaking generically)
+A visualized execution of a complex Command inside a Garden. Work Runs are execution state and history: agents move through Berries, telemetry shows the work, and summaries live in Command Log or Unit history; a Work Run is not a physical Berry on the Garden.
+_Avoid_: Job, pipeline, workflow (unless speaking generically), Work Run Berry, Summary Berry
 
 **Agent Roster**:
 The set of agents in a Garden that the user can select. Split into two levels: Main Agents first, then Subagents under the selected Main Agent. Not the same as the Command Log.

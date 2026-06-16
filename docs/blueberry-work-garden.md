@@ -56,7 +56,8 @@ Examples:
 
 - Tab Berry: website, search result, Google Sheet, Google Doc, CRM page, LinkedIn profile.
 - Artifact Berry: lead, claim, outreach draft, report, automation script, XLSX backup, note, file.
-- Destination Berry: a tool where work is written, such as Google Sheets or Google Docs.
+
+A Berry can temporarily act as a source, writing target, or output during a Work Run, but those are roles/states, not separate Berry kinds.
 
 Berries should share a common visual language but have type-specific treatments:
 
@@ -96,6 +97,8 @@ The Command Bar is universal. The Garden is only for persistent or visualized wo
 - Ambiguous prompt: ask whether to answer quickly or run as visible work.
 
 All commands are saved in a global Command Log, but the log is secondary and never the main UI.
+
+Commands and replies should not appear as faded physical text echoes on the Garden map. The map is for Berries, agent position, and telemetry; command text belongs in the Command Bar, Command Log, HUD chat, or Unit history.
 
 ## Plan approval
 
@@ -188,6 +191,8 @@ Phases can include:
 
 The agent should be humanoid/companion-like, but personality is not the focus. Its purpose is to make work legible.
 
+For MVP companion assets, prioritize transparent-background loops for idle, walking, looking, typing, and blocked. Thinking and cheer states are polish; they can fall back to idle without blocking the demo.
+
 Users should be able to:
 
 - follow the agent with the camera
@@ -220,7 +225,7 @@ Expose operational thinking, not raw chain-of-thought:
 - next step
 - tool call
 
-The full chronological tool/action history belongs in the Command Log. Selected agents and selected Berries show local traces.
+The full chronological tool/action history belongs in the Command Log. Selected agents and selected Berries show local traces. Because Work Runs are not physical Garden objects, run history/provenance opens from the thing the user is inspecting: the selected Agent row/tab is the primary entry point for Unit history, the Command Log is the global audit view, and a selected Berry shows local provenance for what happened to or from that Berry.
 
 ## Failure and blocker UX
 
@@ -229,21 +234,23 @@ No silent failures.
 When blocked:
 
 - the agent pauses at the relevant Berry
-- the Berry shows a warning ring
+- the relevant agent and/or Berry shows a warning ring as spatial context
 - a short label explains the blocker
-- bottom actions offer Take over, Skip, Retry, Redirect
+- the Agent row/tab is the source of truth for blocker state and actions
+- Agent row actions offer Take over, Skip, Retry, Redirect, or approval as appropriate
+- the Garden ring does not contain controls; it only answers where the problem is
 
 Auto-retry is allowed, but retries must be visible.
 
 ## Output spatial flow
 
-Use source-to-destination flow:
+Use source-to-writing-target/output flow:
 
 ```text
 Source Berry
   -> extracted artifact/event
-  -> visual flow to destination Berry
-  -> destination updates
+  -> visual flow to writing target Berry
+  -> target updates
 ```
 
 For lead generation:
@@ -256,13 +263,13 @@ Company website Berry
   -> XLSX backup updates at the end
 ```
 
-Completed Work Runs collapse by default into a summary Berry, with easy expansion back into the run layout.
+Completed Work Runs do not become physical Garden objects. The Garden keeps concrete output Berries visible, while the run summary and provenance live primarily in the selected Agent row/tab's Unit history, with the Command Log as the global audit view.
 
 ## Work Run completion and cleanup
 
-Completed Work Runs should stay under user control. Do not auto-archive or auto-delete them. Make cleanup easy, similar to closing or organizing browser tabs.
+Completed Work Runs should stay under user control. Do not auto-archive or auto-delete their history. Make cleanup easy, similar to closing or organizing browser tabs.
 
-A completed Work Run Summary Berry should show outcome-focused information:
+A completed Work Run summary in the selected agent Unit history, and secondarily in the Command Log, should show outcome-focused information:
 
 ```text
 Lead-gen run
@@ -278,12 +285,12 @@ Completed
 Default actions:
 
 - Open output
-- Expand run
-- Archive
-- Delete
+- Inspect run history
+- Archive history
+- Delete history
 - Keep outputs only
 
-Archive removes the run from the active Garden canvas but keeps it recoverable in Garden history. Delete removes the Blueberry trace, with a warning that external files such as Google Sheets are not deleted.
+Archive hides the run from active history views but keeps it recoverable in Garden history. Delete removes the Blueberry trace, with a warning that external files such as Google Sheets are not deleted.
 
 When a Work Run completes, ask what should happen to source Tab Berries:
 
@@ -291,11 +298,11 @@ When a Work Run completes, ask what should happen to source Tab Berries:
 [Collapse sources] [Keep sources open] [Close source tabs]
 ```
 
-Default to Collapse sources. Collapsing tucks source Tab Berries into the Work Run Summary Berry while keeping the trace restorable. Keeping sources leaves them visible for continued browsing. Closing sources closes or minimizes the browser contexts while preserving trace metadata and external output links.
+Default to Collapse sources. Collapsing hides source Tab Berries from the active Garden while keeping their trace restorable in Command Log and Unit history. Keeping sources leaves them visible for continued browsing. Closing sources closes or minimizes the browser contexts while preserving trace metadata and external output links.
 
-Destination and output Berries stay visible by default. Source clutter collapses, but final outputs such as Google Sheets, XLSX backups, reports, and drafts remain on the canvas.
+Output Berries stay visible by default. Source clutter collapses, but final outputs such as Google Sheets, XLSX backups, reports, and drafts remain on the canvas.
 
-After completion, the Work Run Summary Berry should connect to output Berries and also show a faint collapsed source cluster. This preserves the story of source-to-output work without cluttering the active Garden.
+After completion, output Berries may keep subtle provenance traces back to their source Berries while those sources remain visible. If sources are collapsed or closed, provenance is available through Command Log and Unit history rather than a separate run object on the Garden.
 
 ## MVP demo
 
@@ -347,7 +354,8 @@ Even with open-web discovery, keep the run bounded:
 - max browser action count
 - stop when 10 qualified rows are written
 - always generate XLSX backup
-- show rejected/duplicate/blocked candidates as telemetry
+- record rejected and duplicate candidates in Unit history and Command Log as agent actions
+- show blockers visually only when they require user action
 
 ## What to avoid
 
@@ -401,7 +409,7 @@ Three-minute recording arc:
 3. Visible browser work: agent opens Strawberry pages as Tab Berries, reads them, extracts segments, searches web, qualifies candidates. These actions must be visible directly in the Garden through motion, icons, labels, and flows.
 4. Output creation: Google Sheet Berry appears, rows are written, source-to-sheet flows animate, XLSX backup appears.
 5. Inspectability/control: optionally click an agent or Berry to show operational trace and control affordances.
-6. Final state: completed Work Run collapses into a Summary Berry connected to visible output Berries and a faint collapsed source cluster.
+6. Final state: completed Work Run leaves visible output Berries, while the summary and provenance are available in Command Log or Unit history.
 
 ## Garden rendering approach
 
@@ -414,7 +422,7 @@ Reason: the hardest requirement is not raw rendering. It is combining rich page-
 Recommended MVP stack:
 
 - React DOM/CSS transformed world layer for Berry cards and humanoid agent sprites
-- SVG overlay for paths, source-to-destination flows, selection rings, and telemetry lines
+- SVG overlay for paths, source-to-writing-target/output flows, selection rings, and telemetry lines
 - CSS transitions/requestAnimationFrame for agent movement
 - separate minimap component projected from the same world coordinates
 - Electron IPC to expand a Tab Berry into a real WebContentsView

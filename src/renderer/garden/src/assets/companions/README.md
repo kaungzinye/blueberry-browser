@@ -17,6 +17,15 @@ posters/{character}-{state}.webp   <- optional first-frame poster
   `telemetryVisuals.ts › clipForAgentState`):
   `idle`, `walking`, `thinking`, `looking`, `typing`, `cheer`, `blocked`.
 
+For the MVP demo, provide these five states:
+
+- `blue-idle.webm`
+- `blue-walking.webm`
+- `blue-looking.webm`
+- `blue-typing.webm`
+- `blue-blocked.webm`
+
+`blue-thinking.webm` and `blue-cheer.webm` are polish states, not MVP blockers.
 Only `blue-idle.webm` is needed to start — every state falls back to `idle`
 until its own clip exists (see `FALLBACK` in `companionAssets.ts`). Until *any*
 clip exists, a placeholder companion renders.
