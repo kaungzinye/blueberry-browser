@@ -1,8 +1,8 @@
 # Companion clips
 
-The Garden companion is a pre-rendered, **transparent-background** video loop
-(the technique Strawberry uses). Drop clips here and `Companion.tsx` picks them
-up automatically via `companionAssets.ts` (Vite glob) — no code changes needed.
+The Garden companion is a pre-rendered, **transparent-background** video loop.
+Drop clips here and `Companion.tsx` picks them up automatically via
+`companionAssets.ts` (Vite glob) — no code changes needed.
 
 ## Naming
 
@@ -17,7 +17,7 @@ posters/{character}-{state}.webp   <- optional first-frame poster
   `telemetryVisuals.ts › clipForAgentState`):
   `idle`, `walking`, `thinking`, `looking`, `typing`, `cheer`, `blocked`.
 
-For the MVP demo, provide these five states:
+Recommended starter states:
 
 - `blue-idle.webm`
 - `blue-walking.webm`
@@ -27,7 +27,7 @@ For the MVP demo, provide these five states:
 
 `blue-thinking.webm` and `blue-cheer.webm` are polish states, not MVP blockers.
 Only `blue-idle.webm` is needed to start — every state falls back to `idle`
-until its own clip exists (see `FALLBACK` in `companionAssets.ts`). Until *any*
+until its own clip exists (see `FALLBACK` in `companionAssets.ts`). Until _any_
 clip exists, a placeholder companion renders.
 
 ## Why webm-first
@@ -61,4 +61,7 @@ ffmpeg -i blue-idle.mov -frames:v 1 -c:v libwebp posters/blue-idle.webp
 ```
 
 Keep clips square (e.g. 512×512), short (1–3 s), and seamless-looping.
+
+```
+
 ```

@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import type { Berry, TelemetryEvent } from "../domain/gardenDomain";
 import {
   BERRY_STATUS_RING,
+  BLOCKER_SIGNATURE,
   getTelemetrySignature,
 } from "../domain/telemetryVisuals";
 import {
@@ -14,7 +15,18 @@ import {
 interface TelemetryLayerProps {
   berries: Berry[];
   telemetry: TelemetryEvent[];
+  /** Berries the user has opened — their attention ring is cleared. */
+  seenBerryIds: Set<string>;
+  /** Berries an agent is currently blocked at — they get a warning ring. */
+  blockedBerryIds: Set<string>;
 }
+
+/** Live, transient work — these rings always show while the work is happening. */
+const ACTIVE_STATUSES = new Set<Berry["status"]>([
+  "reading",
+  "extracting",
+  "writing",
+]);
 
 /** World-space center of a Berry. */
 const center = (b: Berry): { x: number; y: number } => ({
@@ -42,6 +54,8 @@ const flowPath = (
 export const TelemetryLayer: React.FC<TelemetryLayerProps> = ({
   berries,
   telemetry,
+  seenBerryIds,
+  blockedBerryIds,
 }) => {
   const berryById = useMemo(
     () => new Map(berries.map((b) => [b.id, b])),
@@ -77,27 +91,41 @@ export const TelemetryLayer: React.FC<TelemetryLayerProps> = ({
 
   return (
     <div className="pointer-events-none absolute left-0 top-0">
-      {/* Berry status rings — the live BerryStatus, finally visible. */}
+      {/* One ring per Berry. Live work (reading/extracting/writing) always
+          rings. A blocked Berry gets a pulsing warning ring; a completed Berry
+          rings once for attention. Both clear after the user opens the Berry,
+          so the canvas doesn't accumulate rings. */}
       {berries.map((berry) => {
-        if (berry.status === "idle") return null;
-        const ring = BERRY_STATUS_RING[berry.status];
+        const seen = seenBerryIds.has(berry.id);
+        const blocked = blockedBerryIds.has(berry.id) && !seen;
+        const active = ACTIVE_STATUSES.has(berry.status);
+        const attention = berry.status === "complete" && !seen;
+
+        if (!blocked && !active && !attention) return null;
+
+        const stroke = blocked
+          ? BLOCKER_SIGNATURE.stroke
+          : BERRY_STATUS_RING[berry.status].stroke;
+
         return (
           <div
             key={`ring-${berry.id}`}
-            className="pointer-events-none absolute rounded-[1.6rem]"
+            className={`pointer-events-none absolute rounded-[1.6rem] ${
+              blocked ? "blocker-ring" : ""
+            }`}
             style={{
               left: berry.x - 4,
               top: berry.y - 4,
               width: berry.width + 8,
               height: berry.height + 8,
-              boxShadow: `0 0 0 1.5px ${ring.stroke}`,
+              boxShadow: `0 0 0 ${blocked ? 2 : 1.5}px ${stroke}`,
             }}
           >
-            {berry.status === "extracting" && (
+            {berry.status === "extracting" && !blocked && (
               <span className="absolute inset-0 overflow-hidden rounded-[1.6rem]">
                 <span
                   className="ring-scan absolute inset-y-0 w-1"
-                  style={{ background: ring.stroke, opacity: 0.5 }}
+                  style={{ background: stroke, opacity: 0.5 }}
                 />
               </span>
             )}
@@ -133,8 +161,9 @@ export const TelemetryLayer: React.FC<TelemetryLayerProps> = ({
         })}
       </svg>
 
-      {/* Pulse on the active Berry + floating label for the latest event. */}
-      {latest && latestBerry && latestSig && (
+      {/* Pulse + floating label on the most recent Berry — but only while it's
+          still the live focus and unseen, so it doesn't linger after opening. */}
+      {latest && latestBerry && latestSig && !seenBerryIds.has(latestBerry.id) && (
         <>
           <div
             className="pulse-ring pointer-events-none absolute rounded-[1.6rem]"

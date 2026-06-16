@@ -5,7 +5,9 @@ import remarkGfm from "remark-gfm";
 import { useChat } from "../contexts/ChatContext";
 
 const COLLAPSED_HEIGHT = 56;
-const EXPANDED_HEIGHT = 400;
+// 0 is the main-process "fill the content area" sentinel: expanding grows the
+// bar over the whole page (full-page chat), like the Garden HUD.
+const EXPANDED_FILL = 0;
 
 const setHeight = (h: number): void => {
   window.sidebarAPI?.setCommandBarHeight(h).catch(() => {});
@@ -179,7 +181,7 @@ export const CommandBar: React.FC = () => {
   const toggleExpand = (): void => {
     const next = !expanded;
     setExpanded(next);
-    setHeight(next ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT);
+    setHeight(next ? EXPANDED_FILL : COLLAPSED_HEIGHT);
   };
 
   const handleSubmit = (): void => {
@@ -192,7 +194,7 @@ export const CommandBar: React.FC = () => {
   return (
     <div
       className="app-region-no-drag flex h-full flex-col overflow-hidden border-t border-white/[0.08]"
-      style={{ background: "#090f21" }}
+      style={{ background: "#112045" }}
     >
       {/* Blocking Approval gate for the live tab the agent is driving */}
       {pendingApproval && (

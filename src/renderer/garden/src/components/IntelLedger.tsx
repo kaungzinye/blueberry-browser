@@ -1,6 +1,5 @@
 import React from "react";
 import {
-  Archive,
   FileDown,
   FileSpreadsheet,
   FileText,
@@ -20,7 +19,6 @@ const kindIcon = {
   xlsx: FileDown,
   lead: Sparkles,
   report: FileText,
-  "work-run": Archive,
 };
 
 interface IntelLedgerStripProps {
@@ -59,12 +57,15 @@ export const IntelLedgerOverlay: React.FC<IntelLedgerOverlayProps> = ({
   onClose,
   onShowOnGarden,
 }) => {
-  const grouped = entries.reduce<Record<string, LedgerEntry[]>>((groups, entry) => {
-    const key = entry.workRunTitle;
-    groups[key] = groups[key] ?? [];
-    groups[key].push(entry);
-    return groups;
-  }, {});
+  const grouped = entries.reduce<Record<string, LedgerEntry[]>>(
+    (groups, entry) => {
+      const key = entry.workRunTitle;
+      groups[key] = groups[key] ?? [];
+      groups[key].push(entry);
+      return groups;
+    },
+    {},
+  );
 
   return (
     <div className="absolute inset-0 z-40 flex items-end justify-center bg-surface-0/70 p-6 backdrop-blur-sm">
@@ -75,10 +76,15 @@ export const IntelLedgerOverlay: React.FC<IntelLedgerOverlayProps> = ({
               Intel Ledger
             </p>
             <h2 className="font-display text-xl font-semibold text-ink">
-              Blueberry Sales Leads
+              Garden Artifacts
             </h2>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            aria-label="Close"
+          >
             <X className="size-4" />
           </Button>
         </header>
@@ -102,7 +108,9 @@ export const IntelLedgerOverlay: React.FC<IntelLedgerOverlayProps> = ({
                           <Icon className="size-4" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="font-medium text-ink">{entry.title}</div>
+                          <div className="font-medium text-ink">
+                            {entry.title}
+                          </div>
                           <div className="text-xs text-ink-muted">
                             {entry.subtitle}
                             {entry.filePath ? ` · ${entry.filePath}` : ""}

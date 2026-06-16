@@ -9,8 +9,7 @@ import { cn } from "./ui/cn";
 /**
  * The companion: a pre-rendered, transparent-background video loop framed by a
  * cropping container, with a transparent overlay that captures the pointer so
- * the companion "looks toward" the cursor (and can be dragged). Modeled on
- * Strawberry's companion-container / companion-video / companion-overlay stack.
+ * the companion "looks toward" the cursor (and can be dragged).
  *
  * No 3D / WebGL. Clips are dropped into assets/companions (see companionAssets
  * .ts); until then a lightweight placeholder renders so nothing breaks.
@@ -45,9 +44,12 @@ export const Companion: React.FC<CompanionProps> = ({
   const sources = getCompanionSources(clip, character);
   const [look, setLook] = useState({ x: 0, y: 0 });
   const [drag, setDrag] = useState({ x: 0, y: 0 });
-  const dragStart = useRef<{ x: number; y: number; ox: number; oy: number } | null>(
-    null
-  );
+  const dragStart = useRef<{
+    x: number;
+    y: number;
+    ox: number;
+    oy: number;
+  } | null>(null);
 
   const scaled = role === "sub" ? size * 0.72 : size;
   const videoSize = scaled * videoScale;
@@ -85,7 +87,7 @@ export const Companion: React.FC<CompanionProps> = ({
     <div
       className={cn(
         "companion-container relative select-none",
-        blocked && "blocker-shake"
+        blocked && "blocker-shake",
       )}
       style={{
         width: scaled,
@@ -116,9 +118,12 @@ export const Companion: React.FC<CompanionProps> = ({
             }}
           >
             {sources ? (
-              <CompanionVideo sources={sources} clipKey={`${character}-${clip}`} />
+              <CompanionVideo
+                sources={sources}
+                clipKey={`${character}-${clip}`}
+              />
             ) : (
-              <PlaceholderCompanion look={look} blocked={blocked} />
+              <PlaceholderCompanion look={look} blocked={blocked} clip={clip} />
             )}
           </div>
         </div>
@@ -132,7 +137,7 @@ export const Companion: React.FC<CompanionProps> = ({
         />
       )}
 
-      {/* Pointer-capture surface (Strawberry's companion-overlay). */}
+      {/* Pointer-capture surface. */}
       <div
         className="absolute inset-0"
         style={{ cursor: draggable ? "grab" : "default" }}
@@ -174,24 +179,109 @@ const CompanionVideo: React.FC<{
 );
 
 /**
- * DOM/SVG placeholder shown until real clips are bundled. Eyes track the
- * cursor so the look-at interaction is demonstrable without any assets.
+ * DOM/SVG placeholder shown until real clips are bundled. This is the telemetry
+ * visualization "now": the humanoid renders a distinct, animated pose per clip
+ * — walking waddles, looking sweeps a magnifier, typing taps its hands,
+ * thinking shows pulsing thought dots, cheer bounces with sparkles, blocked
+ * stops with a warning — so every telemetry state reads at a glance without any
+ * video asset. Eyes always track the cursor. Animations live in index.css
+ * (`.cmp-*`) and respect prefers-reduced-motion.
  */
 const PlaceholderCompanion: React.FC<{
   look: { x: number; y: number };
   blocked: boolean;
-}> = ({ look, blocked }) => {
+  clip: CompanionClip;
+}> = ({ look, blocked, clip }) => {
   const ex = look.x * 4;
   const ey = look.y * 3;
   const body = blocked ? "#5b6480" : "#5b8cff";
+  const head = blocked ? "#9aa6c4" : "#bcd4ff";
   return (
-    <svg viewBox="0 0 100 100" className="h-full w-full" aria-hidden>
-      <ellipse cx="50" cy="62" rx="26" ry="28" fill={body} />
-      <circle cx="50" cy="36" r="22" fill="#bcd4ff" />
-      <circle cx={42 + ex} cy={34 + ey} r="3.6" fill="#10131c" />
-      <circle cx={58 + ex} cy={34 + ey} r="3.6" fill="#10131c" />
+    <svg
+      viewBox="0 0 100 100"
+      className={`h-full w-full cmp cmp-${clip}`}
+      aria-hidden
+    >
+      {/* Legs — only present (and swinging) while walking between Berries. */}
+      {clip === "walking" && (
+        <g>
+          <rect
+            className="cmp-leg cmp-leg-l"
+            x="40"
+            y="84"
+            width="7"
+            height="14"
+            rx="3.5"
+            fill={body}
+          />
+          <rect
+            className="cmp-leg cmp-leg-r"
+            x="53"
+            y="84"
+            width="7"
+            height="14"
+            rx="3.5"
+            fill={body}
+          />
+        </g>
+      )}
+
+      {/* Body + head + cursor-tracking eyes. */}
+      <g className="cmp-torso">
+        <ellipse cx="50" cy="62" rx="26" ry="28" fill={body} />
+        <circle cx="50" cy="36" r="22" fill={head} />
+        <circle cx={42 + ex} cy={34 + ey} r="3.6" fill="#10131c" />
+        <circle cx={58 + ex} cy={34 + ey} r="3.6" fill="#10131c" />
+      </g>
+
+      {/* Typing: two hands tapping below the body. */}
+      {clip === "typing" && (
+        <g fill={head}>
+          <circle className="cmp-hand cmp-hand-l" cx="36" cy="80" r="5" />
+          <circle className="cmp-hand cmp-hand-r" cx="64" cy="80" r="5" />
+        </g>
+      )}
+
+      {/* Looking/observing: a magnifier sweeping across the field. */}
+      {clip === "looking" && (
+        <g className="cmp-scan" stroke="#10131c" strokeWidth="2.5" fill="none">
+          <circle cx="70" cy="44" r="6" />
+          <line x1="74.5" y1="48.5" x2="80" y2="54" strokeLinecap="round" />
+        </g>
+      )}
+
+      {/* Thinking/intent/decision: pulsing thought dots. */}
+      {clip === "thinking" && (
+        <g fill="#bcd4ff">
+          <circle className="cmp-dot cmp-dot-1" cx="72" cy="18" r="2.6" />
+          <circle className="cmp-dot cmp-dot-2" cx="80" cy="13" r="3" />
+          <circle className="cmp-dot cmp-dot-3" cx="89" cy="9" r="3.4" />
+        </g>
+      )}
+
+      {/* Cheer/complete: arms up + twinkling sparkles. */}
+      {clip === "cheer" && (
+        <>
+          <g stroke={body} strokeWidth="5" strokeLinecap="round">
+            <line x1="28" y1="58" x2="18" y2="42" />
+            <line x1="72" y1="58" x2="82" y2="42" />
+          </g>
+          <g className="cmp-spark" fill="#ffd76a">
+            <path d="M20 22 l1.8 4.6 4.6 1.8 -4.6 1.8 -1.8 4.6 -1.8 -4.6 -4.6 -1.8 4.6 -1.8 z" />
+            <path d="M82 24 l1.5 3.8 3.8 1.5 -3.8 1.5 -1.5 3.8 -1.5 -3.8 -3.8 -1.5 3.8 -1.5 z" />
+          </g>
+        </>
+      )}
+
       {blocked && (
-        <text x="50" y="20" textAnchor="middle" fontSize="14" fill="#fbbf24">
+        <text
+          x="50"
+          y="17"
+          textAnchor="middle"
+          fontSize="16"
+          fontWeight="bold"
+          fill="#fbbf24"
+        >
           !
         </text>
       )}

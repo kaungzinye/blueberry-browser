@@ -14,11 +14,12 @@
   --garden-mid: 6 11 26; /* flat (no gradient) */
   --garden-core: 6 11 26;
 
-  /* Surfaces — solid, deep navy, stepped above the canvas. */
-  --surface-0: 9 15 33; /* #090f21 base chrome */
-  --surface-1: 12 20 42; /* #0c142a panels */
-  --surface-2: 17 27 56; /* #111b38 raised */
-  --surface-3: 24 38 76; /* #18264c hover / controls */
+  /* Surfaces — solid, deep navy, clearly stepped above the recessed canvas
+     (#060b1a) so HUD panels read as elevated cards, not the same slab. */
+  --surface-0: 22 40 79; /* #16284f base panel — elevated over canvas */
+  --surface-1: 29 49 96; /* #1d3160 panels */
+  --surface-2: 36 58 114; /* #243a72 raised */
+  --surface-3: 45 69 133; /* #2d4585 hover / controls */
 
   /* Text. */
   --ink: 231 236 246; /* #e7ecf6 */

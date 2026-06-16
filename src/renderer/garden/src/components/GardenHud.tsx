@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Archive,
   Bot,
+  CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   CornerDownLeft,
   FileDown,
@@ -22,18 +24,17 @@ import {
   type WorkRunPlan,
 } from "../domain/gardenDomain";
 import type { Agent, Berry } from "../domain/gardenDomain";
+import type { MainAgentRosterEntry } from "../domain/gardenRoster";
+import { commandPreview, getCommandRosterStatus } from "../domain/gardenRoster";
 import type {
-  MainAgentCycleScope,
-  MainAgentRosterEntry,
-} from "../domain/gardenRoster";
-import {
-  commandPreview,
-  getCommandRosterStatus,
-} from "../domain/gardenRoster";
+  AgentDirectoryApproval,
+  AgentDirectoryRow,
+  AgentDirectoryView,
+} from "../domain/agentDirectory";
+import type { RunControlsView } from "../domain/runControlsView";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { ScrollArea } from "./ui/scroll-area";
-import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 
 export interface ViewportTransform {
   panX: number;
@@ -57,26 +58,24 @@ interface GardenHudProps {
   commandText: string;
   onCommandTextChange: (value: string) => void;
   onSubmit: () => void;
-  plannedWorkRunTitle?: string;
-  /** The planned run's full plan — inspectable/editable before approval (story 24). */
-  plannedWorkRunPlan?: WorkRunPlan;
-  onEditPlan?: (patch: Partial<WorkRunPlan>) => void;
-  onApprovePlan?: () => void;
-  showWorkRunControls?: boolean;
+  runControls: RunControlsView;
+  selectedWorkRunPlan?: WorkRunPlan;
+  selectedWorkRunPlanStatus?: "drafting" | "ready";
   onAdvanceWorkRun?: () => void;
   onCompleteWorkRun?: (sourceChoice: SourceBerryChoice) => void;
-  /** Selected Work Run status — drives pause/retry controls (stories 45–47). */
-  workRunStatus?: string;
   onPauseWorkRun?: () => void;
   onRetryWorkRun?: () => void;
+  agentDirectory: AgentDirectoryView;
   mainAgentRoster: MainAgentRosterEntry[];
+  activeMainAgentRoster: MainAgentRosterEntry[];
+  recentAgentIds: string[];
   selectedMainAgentId: string | null;
-  mainAgentCycleScope: MainAgentCycleScope;
-  onMainAgentCycleScopeChange: (scope: MainAgentCycleScope) => void;
   onSelectMainAgent: (mainAgentId: string) => void;
   onNewCommand: () => void;
   onMarkCommandDone: (commandId: string) => void;
   onReopenCommand: (commandId: string) => void;
+  onApprovePlanForWorkRun: (workRunId: string) => void;
+  onResolveApproval: (approved: boolean) => void;
   rosterCycleHint: string | null;
   onDismissRosterHint: () => void;
   /** Artifact Berries produced by the selected Main Agent (Outputs shelf). */
@@ -107,62 +106,45 @@ const MINIMAP_HEIGHT = 88;
 const WORLD_VIEW_RADIUS = 1200;
 const LEFT_SIDE_WIDTH = "17.5rem";
 /** Width of the dedicated right HUD column (roster + run controls). */
-export const GARDEN_RIGHT_HUD_WIDTH = "15rem";
+export const GARDEN_RIGHT_HUD_WIDTH = "20rem";
 
 /** Shared chrome surface — one restrained panel treatment for all HUD slabs. */
 const PANEL =
   "app-region-no-drag pointer-events-auto border border-line/10 bg-surface-0/92 backdrop-blur-xl";
-
 const SECTION_LABEL =
   "font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint";
-
-const SCOPE_OPTIONS: { id: MainAgentCycleScope; label: string }[] = [
-  { id: "in-progress", label: "Active" },
-  { id: "completed", label: "Done" },
-  { id: "all", label: "All" },
-];
-
-const MOCK_CHAT_HISTORY: { role: "user" | "agent"; text: string }[] = [
-  {
-    role: "user",
-    text: "Look at Strawberry's product and sales pages. Find 10 companies that might buy Blueberry and put them in Sheets.",
-  },
-  {
-    role: "agent",
-    text: "I'll start on Strawberry's site — product positioning first, then the sales prospecting page, so we know who they sell to before hunting buyers.",
-  },
-  {
-    role: "agent",
-    text: "Next I'll run open-web searches for teams that look browser-heavy and match that profile. I'll qualify each lead with evidence URLs.",
-  },
-  {
-    role: "agent",
-    text: "When you approve the run, I'll write rows to Google Sheets with outreach angles and keep an XLSX backup in the garden.",
-  },
-  {
-    role: "agent",
-    text: "Say when to pause before any outbound messages or changes to external systems.",
-  },
-];
 
 const CommandInput: React.FC<{
   commandText: string;
   onCommandTextChange: (value: string) => void;
   onSubmit: () => void;
-}> = ({ commandText, onCommandTextChange, onSubmit }) => {
+  onNewCommand: () => void;
+}> = ({ commandText, onCommandTextChange, onSubmit, onNewCommand }) => {
   const handleSubmit = (event: React.FormEvent): void => {
     event.preventDefault();
     onSubmit();
   };
 
   return (
-    <form onSubmit={handleSubmit} className="app-region-no-drag relative w-full shrink-0">
+    <form
+      onSubmit={handleSubmit}
+      className="app-region-no-drag relative w-full shrink-0"
+    >
       <input
         value={commandText}
         onChange={(event) => onCommandTextChange(event.target.value)}
-        className="w-full rounded-2xl border border-line/12 bg-surface-2/80 py-3 pl-4 pr-12 text-sm text-ink outline-none backdrop-blur-md transition-colors placeholder:text-ink-faint focus:border-accent/60"
+        className="w-full rounded-2xl border border-line/12 bg-surface-2/80 py-3 pl-12 pr-12 text-sm text-ink outline-none backdrop-blur-md transition-colors placeholder:text-ink-faint focus:border-accent/60"
         placeholder="Command the garden…"
       />
+      <button
+        type="button"
+        onClick={onNewCommand}
+        className="absolute left-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-xl text-ink-faint transition-colors hover:bg-white/[0.06] hover:text-accent"
+        title="New command"
+        aria-label="New command"
+      >
+        <Plus className="size-4" />
+      </button>
       <button
         type="submit"
         className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-xl text-ink-faint transition-colors hover:bg-white/[0.06] hover:text-accent"
@@ -200,6 +182,58 @@ const ChatMessage: React.FC<{
   </div>
 );
 
+/**
+ * Inline tool/action trace under an agent turn — the steps the agent actually
+ * took (navigate, read, extract, write…), collapsed by default. This replaces
+ * the standalone Command Log: the conversation now carries its own execution
+ * record, so there's a single timeline instead of two surfaces.
+ */
+const TraceDisclosure: React.FC<{ trace: CommandLogEntry["trace"] }> = ({
+  trace,
+}) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mr-auto mt-1.5 max-w-2xl">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 rounded-lg border border-line/10 bg-white/[0.03] px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-ink-faint transition-colors hover:text-ink"
+      >
+        <ChevronDown
+          className={`size-3 transition-transform ${open ? "" : "-rotate-90"}`}
+        />
+        {trace.length} {trace.length === 1 ? "step" : "steps"}
+      </button>
+      {open && (
+        <ol className="mt-1.5 flex flex-col gap-1 border-l border-line/10 pl-3">
+          {trace.map((event) => (
+            <li
+              key={event.id}
+              className="flex items-baseline gap-2 font-mono text-[10px]"
+            >
+              <span className="shrink-0 uppercase tracking-wide text-ink-faint">
+                {event.kind}
+              </span>
+              <span className="min-w-0 flex-1 text-ink-muted">
+                {event.label}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+};
+
+/** One conversational turn: your command, the steps it took, the agent reply. */
+const CommandTurn: React.FC<{ entry: CommandLogEntry }> = ({ entry }) => (
+  <div className="space-y-2">
+    <ChatMessage role="user" text={entry.text} />
+    {entry.trace.length > 0 && <TraceDisclosure trace={entry.trace} />}
+    {entry.response && <ChatMessage role="agent" text={entry.response} />}
+  </div>
+);
+
 const Minimap: React.FC<{
   berries: Berry[];
   viewRect: { left: number; top: number; width: number; height: number };
@@ -216,7 +250,10 @@ const Minimap: React.FC<{
       style={{ left: MINIMAP_WIDTH / 2, top: MINIMAP_HEIGHT / 2 }}
     />
     {berries.map((berry) => {
-      const point = toMini(berry.x + berry.width / 2, berry.y + berry.height / 2);
+      const point = toMini(
+        berry.x + berry.width / 2,
+        berry.y + berry.height / 2,
+      );
       return (
         <span
           key={berry.id}
@@ -258,39 +295,38 @@ const HudLeft: React.FC<{
   agent: Agent | undefined;
   viewRect: { left: number; top: number; width: number; height: number };
   toMini: (wx: number, wy: number) => { left: number; top: number };
-  onOpenLog: () => void;
-}> = ({ berries, agent, viewRect, toMini, onOpenLog }) => (
+}> = ({ berries, agent, viewRect, toMini }) => (
   <div
     className={`${PANEL} flex shrink-0 flex-row items-center gap-2 border-l-0 border-b-0 border-r border-t-0 px-3 py-3`}
     style={{ width: LEFT_SIDE_WIDTH }}
   >
     <Minimap berries={berries} viewRect={viewRect} toMini={toMini} />
     <AgentBadge agent={agent} />
-    <button
-      type="button"
-      onClick={onOpenLog}
-      className="flex h-[88px] flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-line/12 bg-surface-1/70 px-2 text-ink-faint transition-colors hover:border-accent/40 hover:text-ink"
-      title="Open Command Log"
-      aria-label="Open Command Log"
-    >
-      <FileText className="size-4" />
-      <span className={SECTION_LABEL}>Log</span>
-    </button>
   </div>
 );
 
-const RosterEntry: React.FC<{
-  entry: MainAgentRosterEntry;
-  index: number;
+const DirectoryRow: React.FC<{
+  row: AgentDirectoryRow;
   selected: boolean;
   onSelect: () => void;
   onMarkDone: () => void;
   onReopen: () => void;
-}> = ({ entry, index, selected, onSelect, onMarkDone, onReopen }) => {
-  const rosterStatus = getCommandRosterStatus(entry.command);
-  const done = rosterStatus === "completed";
+  onApprovePlan: () => void;
+  onApproveAction: () => void;
+  onDenyAction: () => void;
+}> = ({
+  row,
+  selected,
+  onSelect,
+  onMarkDone,
+  onReopen,
+  onApprovePlan,
+  onApproveAction,
+  onDenyAction,
+}) => {
+  const done = row.status === "done";
   return (
-    <li>
+    <li data-agent-row={row.agentId}>
       <button
         type="button"
         onClick={onSelect}
@@ -301,20 +337,39 @@ const RosterEntry: React.FC<{
         }`}
       >
         <div className="flex items-start justify-between gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-accent/80">
-            Main Agent {index + 1}
+          <span className="line-clamp-2 min-w-0 text-sm font-medium leading-snug text-ink">
+            {row.taskTitle}
           </span>
           <Badge variant={done ? "done" : "active"} size="xs">
             {done ? "Done" : "Active"}
           </Badge>
         </div>
-        <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-ink">
-          {commandPreview(entry.command)}
-        </p>
         <p className="mt-1 font-mono text-[10px] text-ink-faint">
-          {entry.agent.currentLabel}
+          {row.currentLabel}
         </p>
       </button>
+      {row.approval.kind === "approve-plan" && (
+        <div className="mt-1 px-1">
+          <Button
+            variant="primary"
+            size="sm"
+            className="w-full"
+            onClick={onApprovePlan}
+          >
+            Approve plan
+          </Button>
+        </div>
+      )}
+      {row.approval.kind === "approve-action" && (
+        <div className="mt-1 grid grid-cols-2 gap-1 px-1">
+          <Button variant="primary" size="sm" onClick={onApproveAction}>
+            Approve
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onDenyAction}>
+            Deny
+          </Button>
+        </div>
+      )}
       {selected && (
         <div className="mt-1 px-1">
           <Button
@@ -332,89 +387,64 @@ const RosterEntry: React.FC<{
 };
 
 const MainAgentRosterPanel: React.FC<{
-  roster: MainAgentRosterEntry[];
+  directory: AgentDirectoryView;
   selectedMainAgentId: string | null;
-  scope: MainAgentCycleScope;
-  onScopeChange: (scope: MainAgentCycleScope) => void;
   onSelectMainAgent: (mainAgentId: string) => void;
-  onNewCommand: () => void;
   onMarkCommandDone: (commandId: string) => void;
   onReopenCommand: (commandId: string) => void;
+  onApprovePlanForWorkRun: (workRunId: string) => void;
+  onResolveApproval: (approved: boolean) => void;
   rosterCycleHint: string | null;
   onDismissRosterHint: () => void;
   berryCount: number;
-  plannedWorkRunTitle?: string;
-  plannedWorkRunPlan?: WorkRunPlan;
-  onEditPlan?: (patch: Partial<WorkRunPlan>) => void;
-  onApprovePlan?: () => void;
-  showWorkRunControls?: boolean;
-  onAdvanceWorkRun?: () => void;
-  onCompleteWorkRun?: (sourceChoice: SourceBerryChoice) => void;
-  workRunStatus?: string;
-  onPauseWorkRun?: () => void;
-  onRetryWorkRun?: () => void;
   onToggleExpanded: () => void;
 }> = ({
-  roster,
+  directory,
   selectedMainAgentId,
-  scope,
-  onScopeChange,
   onSelectMainAgent,
-  onNewCommand,
   onMarkCommandDone,
   onReopenCommand,
+  onApprovePlanForWorkRun,
+  onResolveApproval,
   rosterCycleHint,
   onDismissRosterHint,
   berryCount,
-  plannedWorkRunTitle,
-  plannedWorkRunPlan,
-  onEditPlan,
-  onApprovePlan,
-  showWorkRunControls,
-  onAdvanceWorkRun,
-  onCompleteWorkRun,
-  workRunStatus,
-  onPauseWorkRun,
-  onRetryWorkRun,
   onToggleExpanded,
 }) => {
-  // Stories 60–61: what happens to source Berries when the run completes.
-  const [sourceChoice, setSourceChoice] = useState<SourceBerryChoice>("collapse");
+  const [doneOpen, setDoneOpen] = useState(false);
+  const renderRow = (row: AgentDirectoryRow): React.ReactNode => (
+    <DirectoryRow
+      key={row.agentId}
+      row={row}
+      selected={row.agentId === selectedMainAgentId}
+      onSelect={() => onSelectMainAgent(row.agentId)}
+      onMarkDone={() => onMarkCommandDone(row.commandId)}
+      onReopen={() => onReopenCommand(row.commandId)}
+      onApprovePlan={() =>
+        row.workRunId && onApprovePlanForWorkRun(row.workRunId)
+      }
+      onApproveAction={() => onResolveApproval(true)}
+      onDenyAction={() => onResolveApproval(false)}
+    />
+  );
+
   return (
     <div
-      className={`${PANEL} hud-rise flex max-h-full min-h-0 w-full flex-col rounded-2xl shadow-panel`}
-      aria-label="Main Agent roster"
+      className={`${PANEL} hud-rise flex h-full min-h-0 w-full flex-col border-r-0 border-y-0 shadow-panel`}
+      aria-label="Main Agent directory"
     >
       <div className="flex shrink-0 flex-col gap-2.5 border-b border-line/10 px-3 py-3">
         <div className="flex items-center justify-between gap-2">
           <p className={SECTION_LABEL}>Main Agents</p>
-          <div className="flex items-center gap-1">
-            <Button variant="subtle" size="sm" onClick={onNewCommand} title="New Command">
-              <Plus className="size-3" />
-              New
-            </Button>
-            <button
-              type="button"
-              onClick={onToggleExpanded}
-              className="rounded-lg p-1 text-ink-faint transition-colors hover:text-ink"
-              aria-label="Collapse roster"
-            >
-              <ChevronUp className="size-3.5" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            className="rounded-lg p-1 text-ink-faint transition-colors hover:text-ink"
+            aria-label="Collapse directory"
+          >
+            <ChevronRight className="size-3.5" />
+          </button>
         </div>
-        <ToggleGroup
-          type="single"
-          value={scope}
-          onValueChange={(value) => value && onScopeChange(value as MainAgentCycleScope)}
-          aria-label="Cycle scope"
-        >
-          {SCOPE_OPTIONS.map((option) => (
-            <ToggleGroupItem key={option.id} value={option.id}>
-              {option.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
         {rosterCycleHint && (
           <p className="rounded-lg border border-tm-blocker/25 bg-tm-blocker/10 px-2 py-1.5 text-[11px] leading-snug text-tm-blocker">
             {rosterCycleHint}
@@ -430,114 +460,59 @@ const MainAgentRosterPanel: React.FC<{
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
-        <ol className="flex flex-col gap-2 px-2 py-3">
-          {roster.length === 0 ? (
-            <li className="px-2 py-6 text-center text-xs text-ink-faint">
-              No Main Agents in this view.
+        <div className="space-y-4 px-2 py-3">
+          {directory.active.length + directory.done.length === 0 ? (
+            <p className="px-2 py-6 text-center text-xs text-ink-faint">
+              No Main Agents yet.
               <br />
-              <button
-                type="button"
-                className="mt-2 text-accent underline"
-                onClick={onNewCommand}
-              >
-                New Command
-              </button>
-            </li>
+              Use + beside the command input.
+            </p>
           ) : (
-            roster.map((entry, index) => (
-              <RosterEntry
-                key={entry.agent.id}
-                entry={entry}
-                index={index}
-                selected={entry.agent.id === selectedMainAgentId}
-                onSelect={() => onSelectMainAgent(entry.agent.id)}
-                onMarkDone={() => onMarkCommandDone(entry.command.id)}
-                onReopen={() => onReopenCommand(entry.command.id)}
-              />
-            ))
+            <>
+              <section>
+                <p className={`${SECTION_LABEL} mb-2 px-1`}>Active</p>
+                <ol className="flex flex-col gap-2">
+                  {directory.active.length === 0 ? (
+                    <li className="px-2 py-3 text-xs text-ink-faint">
+                      No active agents.
+                    </li>
+                  ) : (
+                    directory.active.map(renderRow)
+                  )}
+                </ol>
+              </section>
+              {directory.done.length > 0 && (
+                <section>
+                  <button
+                    type="button"
+                    className={`${SECTION_LABEL} mb-2 flex w-full items-center gap-1 px-1 text-left`}
+                    onClick={() => setDoneOpen((open) => !open)}
+                  >
+                    {doneOpen ? (
+                      <ChevronDown className="size-3" />
+                    ) : (
+                      <ChevronRight className="size-3" />
+                    )}
+                    Done
+                    <span className="text-ink-faint">
+                      ({directory.done.length})
+                    </span>
+                  </button>
+                  {doneOpen && (
+                    <ol className="flex flex-col gap-2">
+                      {directory.done.map(renderRow)}
+                    </ol>
+                  )}
+                </section>
+              )}
+            </>
           )}
-        </ol>
+        </div>
       </ScrollArea>
 
-      <div className="shrink-0 space-y-2 border-t border-line/10 px-3 py-3">
-        {plannedWorkRunTitle && onApprovePlan && plannedWorkRunPlan && onEditPlan ? (
-          <PlanCard
-            title={plannedWorkRunTitle}
-            plan={plannedWorkRunPlan}
-            onEdit={onEditPlan}
-            onApprove={onApprovePlan}
-          />
-        ) : (
-          plannedWorkRunTitle &&
-          onApprovePlan && (
-            <div className="space-y-2">
-              <p className="line-clamp-2 text-xs leading-relaxed text-ink-muted">
-                {plannedWorkRunTitle}
-              </p>
-              <Button variant="primary" size="md" className="w-full" onClick={onApprovePlan}>
-                Approve run
-              </Button>
-            </div>
-          )
-        )}
-        {showWorkRunControls && (
-          <div className="flex flex-col gap-2">
-            {onAdvanceWorkRun && (
-              <Button variant="outline" size="md" className="w-full" onClick={onAdvanceWorkRun}>
-                Advance
-              </Button>
-            )}
-            {onPauseWorkRun && (
-              <Button variant="ghost" size="md" className="w-full" onClick={onPauseWorkRun}>
-                Pause
-              </Button>
-            )}
-            {onCompleteWorkRun && (
-              <>
-                <div className="flex items-center justify-center gap-1">
-                  <span className="mr-1 font-mono text-[9px] uppercase tracking-wide text-ink-faint">
-                    Sources
-                  </span>
-                  {(["collapse", "keep", "close"] as const).map((choice) => (
-                    <button
-                      key={choice}
-                      type="button"
-                      onClick={() => setSourceChoice(choice)}
-                      className={`rounded-md px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide transition-colors ${
-                        sourceChoice === choice
-                          ? "bg-accent/15 text-accent"
-                          : "text-ink-faint hover:text-ink"
-                      }`}
-                    >
-                      {choice}
-                    </button>
-                  ))}
-                </div>
-                <Button
-                  variant="success"
-                  size="md"
-                  className="w-full"
-                  onClick={() => onCompleteWorkRun(sourceChoice)}
-                >
-                  Complete run
-                </Button>
-              </>
-            )}
-          </div>
-        )}
-        {(workRunStatus === "blocked" || workRunStatus === "interrupted") &&
-          onRetryWorkRun && (
-            <div className="space-y-1.5">
-              <p className="text-center font-mono text-[10px] uppercase tracking-wide text-tm-blocker">
-                {workRunStatus === "blocked" ? "Run blocked" : "Run paused"}
-              </p>
-              <Button variant="primary" size="md" className="w-full" onClick={onRetryWorkRun}>
-                {workRunStatus === "blocked" ? "Retry" : "Resume"}
-              </Button>
-            </div>
-          )}
+      <div className="shrink-0 border-t border-line/10 px-3 py-2.5">
         <p className="text-center font-mono text-[10px] text-ink-faint">
-          {berryCount} {berryCount === 1 ? "berry" : "berries"} · Tab cycles
+          {berryCount} {berryCount === 1 ? "berry" : "berries"} · ⌥Tab cycles
         </p>
       </div>
     </div>
@@ -551,15 +526,15 @@ const ARTIFACT_ICONS: Partial<
   xlsx: FileDown,
   report: FileText,
   lead: Sparkles,
-  "work-run": Archive,
 };
 
 // Keep original alias for HudBottomRight which uses a different name
 const ARTIFACT_ICON = ARTIFACT_ICONS;
 
 const artifactIconFor = (
-  kind: BerryKind
-): React.ComponentType<{ className?: string }> => ARTIFACT_ICON[kind] ?? FileText;
+  kind: BerryKind,
+): React.ComponentType<{ className?: string }> =>
+  ARTIFACT_ICON[kind] ?? FileText;
 
 type ArtifactKindFilter = BerryKind | "all";
 
@@ -569,7 +544,6 @@ const ARTIFACT_KIND_FILTERS: { id: ArtifactKindFilter; label: string }[] = [
   { id: "report", label: "Report" },
   { id: "lead", label: "Lead" },
   { id: "xlsx", label: "XLSX" },
-  { id: "work-run", label: "Run" },
 ];
 
 const ArtifactRosterPanel: React.FC<{
@@ -582,13 +556,15 @@ const ArtifactRosterPanel: React.FC<{
 
   const visibleKinds = useMemo(
     () => new Set(artifacts.map((a) => a.kind)),
-    [artifacts]
+    [artifacts],
   );
 
   const filtered = useMemo(
     () =>
-      kindFilter === "all" ? artifacts : artifacts.filter((a) => a.kind === kindFilter),
-    [artifacts, kindFilter]
+      kindFilter === "all"
+        ? artifacts
+        : artifacts.filter((a) => a.kind === kindFilter),
+    [artifacts, kindFilter],
   );
 
   const grouped = useMemo(
@@ -597,12 +573,12 @@ const ArtifactRosterPanel: React.FC<{
         (acc[entry.workRunTitle] ??= []).push(entry);
         return acc;
       }, {}),
-    [filtered]
+    [filtered],
   );
 
   return (
     <div
-      className={`${PANEL} flex max-h-full min-h-0 w-full flex-col rounded-2xl shadow-panel`}
+      className={`${PANEL} flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl shadow-panel`}
       aria-label="Artifact roster"
     >
       <div className="flex shrink-0 flex-col gap-2 border-b border-line/10 px-3 py-3">
@@ -612,7 +588,7 @@ const ArtifactRosterPanel: React.FC<{
         </div>
         <div className="flex flex-wrap gap-1">
           {ARTIFACT_KIND_FILTERS.filter(
-            (f) => f.id === "all" || visibleKinds.has(f.id as BerryKind)
+            (f) => f.id === "all" || visibleKinds.has(f.id as BerryKind),
           ).map((f) => (
             <button
               key={f.id}
@@ -632,11 +608,14 @@ const ArtifactRosterPanel: React.FC<{
 
       <ScrollArea className="min-h-0 flex-1">
         {artifacts.length === 0 ? (
-          <p className="px-4 py-8 text-center text-xs text-ink-faint">
-            No artifacts yet.
-            <br />
-            Approve a Work Run to produce them.
-          </p>
+          <div className="flex min-h-36 flex-col items-center justify-center px-4 py-8 text-center">
+            <p className="text-sm font-medium text-ink-muted">
+              No artifacts yet
+            </p>
+            <p className="mt-1 max-w-48 text-xs leading-relaxed text-ink-faint">
+              Approve a Work Run to produce them.
+            </p>
+          </div>
         ) : filtered.length === 0 ? (
           <p className="px-4 py-6 text-center text-xs text-ink-faint">
             No {kindFilter}s in this Garden.
@@ -697,7 +676,8 @@ const ArtifactRosterPanel: React.FC<{
 
       <div className="shrink-0 border-t border-line/10 px-3 py-2.5">
         <p className="text-center font-mono text-[10px] text-ink-faint">
-          {artifacts.length} {artifacts.length === 1 ? "artifact" : "artifacts"} · ⌘I full view
+          {artifacts.length} {artifacts.length === 1 ? "artifact" : "artifacts"}{" "}
+          · ⌘I full view
         </p>
       </div>
     </div>
@@ -711,9 +691,17 @@ const ArtifactsShelf: React.FC<{
   onOpenLedger: () => void;
   panelExpanded: boolean;
   onTogglePanel: () => void;
-}> = ({ artifacts, agentLabel, onSelectArtifact, onOpenLedger, panelExpanded, onTogglePanel }) => {
+}> = ({
+  artifacts,
+  agentLabel,
+  onSelectArtifact,
+  onOpenLedger,
+  panelExpanded,
+  onTogglePanel,
+}) => {
   const lastArtifact = artifacts[artifacts.length - 1];
   const extra = artifacts.length - 1;
+  const canExpand = artifacts.length > 0;
 
   return (
     <div
@@ -735,38 +723,47 @@ const ArtifactsShelf: React.FC<{
             {agentLabel}
           </span>
         )}
-        <button
-          type="button"
-          onClick={onTogglePanel}
-          className="ml-auto shrink-0 rounded-lg border border-line/10 bg-white/[0.03] p-1 text-ink-faint transition-colors hover:border-accent/40 hover:text-accent"
-          aria-label={panelExpanded ? "Collapse artifacts" : "Expand artifacts"}
-        >
-          {panelExpanded ? (
-            <ChevronDown className="size-3" />
-          ) : (
-            <ChevronUp className="size-3" />
-          )}
-        </button>
+        {canExpand && (
+          <button
+            type="button"
+            onClick={onTogglePanel}
+            className="ml-auto shrink-0 rounded-lg border border-line/10 bg-white/[0.03] p-1 text-ink-faint transition-colors hover:border-accent/40 hover:text-accent"
+            aria-label={
+              panelExpanded ? "Collapse artifacts" : "Expand artifacts"
+            }
+          >
+            {panelExpanded ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronUp className="size-3" />
+            )}
+          </button>
+        )}
       </div>
 
       {artifacts.length === 0 ? (
-        <p className="text-[11px] leading-tight text-ink-faint">No outputs yet</p>
+        <p className="text-[11px] leading-tight text-ink-faint">
+          No outputs yet
+        </p>
       ) : (
         <div className="flex min-w-0 items-center gap-1.5">
-          {lastArtifact && (() => {
-            const Icon = artifactIconFor(lastArtifact.kind);
-            return (
-              <button
-                type="button"
-                onClick={() => onSelectArtifact(lastArtifact.id)}
-                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-line/10 bg-white/[0.03] px-2 py-1.5 text-left transition-colors hover:border-accent/40 hover:bg-white/[0.07]"
-                title={`${lastArtifact.title} · ${lastArtifact.kind}`}
-              >
-                <Icon className="size-3.5 shrink-0 text-accent" />
-                <span className="truncate text-[11px] text-ink">{lastArtifact.title}</span>
-              </button>
-            );
-          })()}
+          {lastArtifact &&
+            (() => {
+              const Icon = artifactIconFor(lastArtifact.kind);
+              return (
+                <button
+                  type="button"
+                  onClick={() => onSelectArtifact(lastArtifact.id)}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-line/10 bg-white/[0.03] px-2 py-1.5 text-left transition-colors hover:border-accent/40 hover:bg-white/[0.07]"
+                  title={`${lastArtifact.title} · ${lastArtifact.kind}`}
+                >
+                  <Icon className="size-3.5 shrink-0 text-accent" />
+                  <span className="truncate text-[11px] text-ink">
+                    {lastArtifact.title}
+                  </span>
+                </button>
+              );
+            })()}
           {extra > 0 && (
             <button
               type="button"
@@ -779,104 +776,6 @@ const ArtifactsShelf: React.FC<{
           )}
         </div>
       )}
-    </div>
-  );
-};
-
-/** Editable newline-separated list section of a plan (story 24). */
-const PlanListSection: React.FC<{
-  label: string;
-  items: string[];
-  onCommit: (items: string[]) => void;
-}> = ({ label, items, onCommit }) => {
-  const [draft, setDraft] = useState(items.join("\n"));
-
-  // Re-sync when the plan changes underneath (e.g. another view edited it).
-  useEffect(() => {
-    setDraft(items.join("\n"));
-  }, [items]);
-
-  return (
-    <div>
-      <p className={`${SECTION_LABEL} mb-1`}>{label}</p>
-      <textarea
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() =>
-          onCommit(
-            draft
-              .split("\n")
-              .map((line) => line.trim())
-              .filter(Boolean),
-          )
-        }
-        rows={Math.max(2, items.length)}
-        className="w-full resize-none rounded-lg border border-line/10 bg-surface-2/60 px-2 py-1.5 text-[11px] leading-relaxed text-ink outline-none transition-colors focus:border-accent/50"
-      />
-    </div>
-  );
-};
-
-/**
- * Progressive plan card (stories 23–26): summary plus inspectable, editable
- * sections — sources, criteria, output columns, destination, checkpoints.
- */
-const PlanCard: React.FC<{
-  title: string;
-  plan: WorkRunPlan;
-  onEdit: (patch: Partial<WorkRunPlan>) => void;
-  onApprove: () => void;
-}> = ({ title, plan, onEdit, onApprove }) => {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="space-y-2">
-      <p className="line-clamp-2 text-xs leading-relaxed text-ink-muted">{title}</p>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between rounded-lg border border-line/10 bg-white/[0.03] px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-wide text-ink-faint transition-colors hover:text-ink"
-      >
-        Review plan
-        {open ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-      </button>
-      {open && (
-        <div className="hud-drop max-h-64 space-y-2.5 overflow-y-auto rounded-lg border border-line/10 bg-surface-1/60 p-2.5">
-          <p className="text-[11px] leading-relaxed text-ink-muted">{plan.summary}</p>
-          <PlanListSection
-            label="Sources"
-            items={plan.sources}
-            onCommit={(sources) => onEdit({ sources })}
-          />
-          <PlanListSection
-            label="Qualification criteria"
-            items={plan.qualificationCriteria}
-            onCommit={(qualificationCriteria) => onEdit({ qualificationCriteria })}
-          />
-          <PlanListSection
-            label="Output columns"
-            items={plan.outputColumns}
-            onCommit={(outputColumns) => onEdit({ outputColumns })}
-          />
-          <div>
-            <p className={`${SECTION_LABEL} mb-1`}>Destination</p>
-            <p className="text-[11px] text-ink">
-              {plan.destination.primary}{" "}
-              <span className="text-ink-faint">· backup {plan.destination.backup}</span>
-            </p>
-          </div>
-          <div>
-            <p className={`${SECTION_LABEL} mb-1`}>Approval checkpoints</p>
-            <ul className="list-inside list-disc text-[11px] leading-relaxed text-ink-muted">
-              {plan.approvalCheckpoints.map((checkpoint) => (
-                <li key={checkpoint}>{checkpoint}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-      <Button variant="primary" size="md" className="w-full" onClick={onApprove}>
-        Approve run
-      </Button>
     </div>
   );
 };
@@ -996,18 +895,22 @@ const BerrySwitcherPalette: React.FC<{
  */
 const AgentRail: React.FC<{
   entries: MainAgentRosterEntry[];
+  directory: AgentDirectoryView;
   selectedMainAgentId: string | null;
   onSelect: (mainAgentId: string) => void;
   onExpand: () => void;
-  indexOf: (mainAgentId: string) => number;
-}> = ({ entries, selectedMainAgentId, onSelect, onExpand, indexOf }) => (
+}> = ({ entries, directory, selectedMainAgentId, onSelect, onExpand }) => (
   <div
-    className={`${PANEL} hud-fade flex flex-col items-center gap-2 rounded-2xl p-2 shadow-panel`}
+    className={`${PANEL} hud-fade flex flex-col items-center gap-2 rounded-l-2xl border-r-0 p-2 shadow-panel`}
     aria-label="Agent rail"
   >
     {entries.map((entry) => {
       const selected = entry.agent.id === selectedMainAgentId;
       const done = getCommandRosterStatus(entry.command) === "completed";
+      const row = [...directory.active, ...directory.done].find(
+        (candidate) => candidate.agentId === entry.agent.id,
+      );
+      const blocked = row?.approval.kind !== "none";
       return (
         <button
           key={entry.agent.id}
@@ -1018,8 +921,8 @@ const AgentRail: React.FC<{
               ? "border-accent/60 bg-accent/15 text-accent"
               : "border-line/12 bg-surface-1/70 text-ink-muted hover:border-accent/40 hover:text-ink"
           }`}
-          title={`Main Agent ${indexOf(entry.agent.id) + 1} — ${entry.agent.currentLabel}`}
-          aria-label={`Select Main Agent ${indexOf(entry.agent.id) + 1}`}
+          title={`${commandPreview(entry.command)} — ${entry.agent.currentLabel}`}
+          aria-label={`Select ${commandPreview(entry.command)}`}
         >
           <Bot className="size-4" />
           <span
@@ -1027,9 +930,9 @@ const AgentRail: React.FC<{
               done ? "bg-tm-complete" : "animate-pulse bg-accent"
             }`}
           />
-          <span className="absolute -bottom-1 -right-1 flex size-4 items-center justify-center rounded-full bg-surface-2 font-mono text-[8px] text-ink-muted">
-            {indexOf(entry.agent.id) + 1}
-          </span>
+          {blocked && (
+            <span className="absolute -bottom-1 -right-1 size-3 rounded-full bg-tm-blocker ring-2 ring-surface-0" />
+          )}
         </button>
       );
     })}
@@ -1037,93 +940,11 @@ const AgentRail: React.FC<{
       type="button"
       onClick={onExpand}
       className="flex size-10 items-center justify-center rounded-full border border-line/12 bg-surface-1/70 text-ink-faint transition-colors hover:border-accent/40 hover:text-ink"
-      title="Open agent roster"
-      aria-label="Open agent roster"
+      title="Open agent directory"
+      aria-label="Open agent directory"
     >
-      <Maximize2 className="size-3.5" />
+      <ChevronLeft className="size-3.5" />
     </button>
-  </div>
-);
-
-/**
- * Command Log overlay (PRD stories 16–17): all commands with their exact
- * tool/action traces. Deliberately secondary — opened on demand, never the
- * primary surface.
- */
-const CommandLogPanel: React.FC<{
-  log: CommandLogEntry[];
-  onClose: () => void;
-}> = ({ log, onClose }) => (
-  <div
-    className={`${PANEL} hud-rise pointer-events-auto absolute inset-4 z-50 flex flex-col overflow-hidden rounded-2xl shadow-panel`}
-    aria-label="Command Log"
-  >
-    <div className="flex shrink-0 items-center justify-between border-b border-line/10 px-4 py-3">
-      <p className={SECTION_LABEL}>Command Log</p>
-      <button
-        type="button"
-        onClick={onClose}
-        className="rounded-lg border border-line/10 bg-white/[0.03] p-1 text-ink-faint transition-colors hover:border-accent/40 hover:text-ink"
-        aria-label="Close Command Log"
-      >
-        <X className="size-3.5" />
-      </button>
-    </div>
-    <ScrollArea className="min-h-0 flex-1">
-      {log.length === 0 ? (
-        <p className="px-4 py-8 text-center text-xs text-ink-faint">
-          No commands yet.
-        </p>
-      ) : (
-        <ol className="flex flex-col gap-3 px-4 py-4">
-          {log.map((entry) => (
-            <li
-              key={entry.commandId}
-              className="rounded-xl border border-line/10 bg-white/[0.03] px-3.5 py-3"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <Badge
-                  variant={entry.status === "complete" ? "done" : "active"}
-                  size="xs"
-                >
-                  {entry.route}
-                </Badge>
-                {entry.workRunTitle && (
-                  <span className="truncate font-mono text-[10px] text-accent/70">
-                    {entry.workRunTitle}
-                  </span>
-                )}
-              </div>
-              <p className="mt-1.5 text-xs leading-relaxed text-ink">
-                {entry.text || "(empty command)"}
-              </p>
-              {entry.response && (
-                <p className="mt-1 text-xs leading-relaxed text-accent-strong/85">
-                  {entry.response}
-                </p>
-              )}
-              {entry.trace.length > 0 && (
-                <ol className="mt-2 flex flex-col gap-1 border-t border-line/10 pt-2">
-                  {entry.trace.map((event) => (
-                    <li
-                      key={event.id}
-                      className="flex items-baseline gap-2 font-mono text-[10px]"
-                    >
-                      <span className="shrink-0 uppercase tracking-wide text-ink-faint">
-                        {event.kind}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-ink-muted">
-                        {event.label}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </li>
-          ))}
-        </ol>
-      )}
-    </ScrollArea>
   </div>
 );
 
@@ -1141,10 +962,18 @@ const RouteChoiceRow: React.FC<{
     return (
       <div className="pointer-events-auto hud-rise flex items-center justify-center gap-2">
         <span className={SECTION_LABEL}>Quick answer or visible run?</span>
-        <Button variant="subtle" size="sm" onClick={() => onChooseRoute("quick")}>
+        <Button
+          variant="subtle"
+          size="sm"
+          onClick={() => onChooseRoute("quick")}
+        >
           Answer quickly
         </Button>
-        <Button variant="primary" size="sm" onClick={() => onChooseRoute("work-run")}>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => onChooseRoute("work-run")}
+        >
           Run visibly
         </Button>
       </div>
@@ -1163,12 +992,204 @@ const RouteChoiceRow: React.FC<{
   return null;
 };
 
+const InlinePlanPreview: React.FC<{ plan: WorkRunPlan }> = ({ plan }) => {
+  const columns = plan.outputColumns.slice(0, 4).join(", ");
+  const destination = plan.destination.backup
+    ? `${plan.destination.primary} + ${plan.destination.backup}`
+    : plan.destination.primary;
+
+  return (
+    <div className="grid min-w-[18rem] max-w-xl flex-1 gap-1.5 rounded-xl border border-line/10 bg-white/[0.03] p-2 text-left text-[11px] leading-snug text-ink-muted">
+      <p className="text-xs text-ink">{plan.summary}</p>
+      <div className="grid gap-1 sm:grid-cols-2">
+        <p>
+          <span className="text-ink-faint">Sources:</span>{" "}
+          {plan.sources.slice(0, 3).join(", ")}
+        </p>
+        <p>
+          <span className="text-ink-faint">Output:</span> {columns}
+          {plan.outputColumns.length > 4 ? "..." : ""}
+        </p>
+        <p>
+          <span className="text-ink-faint">Criteria:</span>{" "}
+          {plan.qualificationCriteria.slice(0, 2).join("; ")}
+        </p>
+        <p>
+          <span className="text-ink-faint">Destination:</span> {destination}
+        </p>
+      </div>
+      <p className="font-mono text-[10px] uppercase tracking-wide text-ink-faint">
+        Checkpoints: {plan.approvalCheckpoints.slice(0, 2).join(" / ")}
+      </p>
+    </div>
+  );
+};
+
+/**
+ * The single Work Run control surface, living in the center command hub right
+ * above the command input. Everything that can happen to the selected Main
+ * Agent's run is here, one place, in lifecycle order:
+ *   approve plan → (running) Advance / Pause → (blocked) Retry / (interrupted)
+ *   Resume → Approve / Deny an action → (done) Finish.
+ * It stays a compact single row so it never grows the chat.
+ */
+const RunControlStrip: React.FC<{
+  controls: RunControlsView;
+  approval: AgentDirectoryApproval;
+  approvalWorkRunId?: string;
+  plan?: WorkRunPlan;
+  planStatus?: "drafting" | "ready";
+  onAdvanceWorkRun?: () => void;
+  onCompleteWorkRun?: (sourceChoice: SourceBerryChoice) => void;
+  onPauseWorkRun?: () => void;
+  onRetryWorkRun?: () => void;
+  onApprovePlanForWorkRun: (workRunId: string) => void;
+  onResolveApproval: (approved: boolean) => void;
+}> = ({
+  controls,
+  approval,
+  approvalWorkRunId,
+  plan,
+  planStatus,
+  onAdvanceWorkRun,
+  onCompleteWorkRun,
+  onPauseWorkRun,
+  onRetryWorkRun,
+  onApprovePlanForWorkRun,
+  onResolveApproval,
+}) => {
+  const needsPlan = approval.kind === "approve-plan";
+  const needsAction = approval.kind === "approve-action";
+  const isDraftingPlan = planStatus === "drafting";
+  const hasLifecycle =
+    controls.advance.visible ||
+    controls.pause.visible ||
+    controls.retry.visible ||
+    controls.complete.visible;
+
+  if (!needsPlan && !needsAction && !hasLifecycle && !isDraftingPlan) {
+    return null;
+  }
+
+  const label = isDraftingPlan
+    ? "Drafting plan from prompt"
+    : needsPlan
+      ? "Plan ready — approve to start"
+      : needsAction
+        ? "Agent needs approval to act"
+        : controls.complete.visible
+          ? "Work Run complete"
+          : controls.retry.visible
+            ? "Run needs attention"
+            : "Work Run running";
+
+  const accent =
+    needsAction || needsPlan || isDraftingPlan
+      ? "border-tm-blocker/40 text-tm-blocker"
+      : controls.complete.visible
+        ? "border-tm-complete/40 text-tm-complete"
+        : "border-line/10 text-ink-faint";
+
+  return (
+    <div
+      className={`pointer-events-auto hud-rise flex max-w-3xl flex-wrap items-start justify-center gap-2 rounded-2xl border bg-surface-0/82 px-3 py-2 backdrop-blur-xl ${accent}`}
+    >
+      <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.16em]">
+        {controls.complete.visible && <CheckCircle2 className="size-3.5" />}
+        {label}
+      </span>
+      {(needsPlan || needsAction || hasLifecycle) && (
+        <span className="h-4 w-px bg-line/15" aria-hidden />
+      )}
+
+      {/* Approval gates take priority over lifecycle controls. */}
+      {needsPlan && approvalWorkRunId && (
+        <>
+          {plan && <InlinePlanPreview plan={plan} />}
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => onApprovePlanForWorkRun(approvalWorkRunId)}
+          >
+            Approve plan
+          </Button>
+        </>
+      )}
+      {needsAction && (
+        <>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => onResolveApproval(true)}
+          >
+            Approve
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onResolveApproval(false)}
+          >
+            Deny
+          </Button>
+        </>
+      )}
+
+      {!needsPlan && !needsAction && (
+        <>
+          {controls.advance.visible && onAdvanceWorkRun && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!controls.advance.enabled}
+              onClick={onAdvanceWorkRun}
+            >
+              Advance
+            </Button>
+          )}
+          {controls.pause.visible && onPauseWorkRun && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!controls.pause.enabled}
+              onClick={onPauseWorkRun}
+            >
+              Pause
+            </Button>
+          )}
+          {controls.retry.visible && onRetryWorkRun && (
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!controls.retry.enabled}
+              onClick={onRetryWorkRun}
+            >
+              {controls.retry.label}
+            </Button>
+          )}
+          {controls.complete.visible && onCompleteWorkRun && (
+            <Button
+              variant="success"
+              size="sm"
+              disabled={!controls.complete.enabled}
+              onClick={() => onCompleteWorkRun("collapse")}
+            >
+              Finish
+            </Button>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 /** Chat-only column: no background; garden shows through. */
 const HudChatColumn: React.FC<{
   latestAgentReply: string | null;
   commandText: string;
   onCommandTextChange: (value: string) => void;
   onSubmit: () => void;
+  onNewCommand: () => void;
+  runControlStrip: React.ReactNode;
   expandButton: React.ReactNode;
   routeChoice: React.ReactNode;
 }> = ({
@@ -1176,13 +1197,17 @@ const HudChatColumn: React.FC<{
   commandText,
   onCommandTextChange,
   onSubmit,
+  onNewCommand,
+  runControlStrip,
   expandButton,
   routeChoice,
 }) => (
   // Same max-w-3xl column as the expanded chat sheet, so the input keeps one
   // width and one axis across collapsed/expanded states — no resize jump.
   <div className="pointer-events-none flex w-full max-w-3xl flex-col justify-end gap-2 px-4 pb-3 pt-2 hud-rise">
-    <div className="pointer-events-auto flex justify-center">{expandButton}</div>
+    <div className="pointer-events-auto flex justify-center">
+      {expandButton}
+    </div>
     {routeChoice}
     {latestAgentReply && (
       <div className="pointer-events-auto relative max-h-[5.5rem] px-1 text-center hud-fade">
@@ -1191,11 +1216,13 @@ const HudChatColumn: React.FC<{
         </p>
       </div>
     )}
+    {runControlStrip}
     <div className="pointer-events-auto w-full">
       <CommandInput
         commandText={commandText}
         onCommandTextChange={onCommandTextChange}
         onSubmit={onSubmit}
+        onNewCommand={onNewCommand}
       />
     </div>
   </div>
@@ -1214,24 +1241,24 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     commandText,
     onCommandTextChange,
     onSubmit,
-    plannedWorkRunTitle,
-    plannedWorkRunPlan,
-    onEditPlan,
-    onApprovePlan,
-    showWorkRunControls,
+    runControls,
+    selectedWorkRunPlan,
+    selectedWorkRunPlanStatus,
     onAdvanceWorkRun,
     onCompleteWorkRun,
-    workRunStatus,
     onPauseWorkRun,
     onRetryWorkRun,
+    agentDirectory,
     mainAgentRoster,
+    activeMainAgentRoster,
+    recentAgentIds,
     selectedMainAgentId,
-    mainAgentCycleScope,
-    onMainAgentCycleScopeChange,
     onSelectMainAgent,
     onNewCommand,
     onMarkCommandDone,
     onReopenCommand,
+    onApprovePlanForWorkRun,
+    onResolveApproval,
     rosterCycleHint,
     onDismissRosterHint,
     bottomArtifacts,
@@ -1244,9 +1271,6 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     commandLog,
     switcherEntries,
     onActivateBerry,
-    gardenName,
-    gardens,
-    onSwitchGarden,
     promoteTarget,
     onPromoteSelected,
   } = props;
@@ -1258,20 +1282,9 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
   const [railHovered, setRailHovered] = useState(false);
   /** Tab-cycling transiently surfaces the recent-agents rail. */
   const [cycleRailVisible, setCycleRailVisible] = useState(false);
-  /** Most recently selected Main Agent ids, newest first. */
-  const [recentAgentIds, setRecentAgentIds] = useState<string[]>([]);
   const [artifactsPanelExpanded, setArtifactsPanelExpanded] = useState(false);
   const [artifactsFullscreen, setArtifactsFullscreen] = useState(false);
-  const [logOpen, setLogOpen] = useState(false);
-
-  useEffect(() => {
-    if (!logOpen) return;
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") setLogOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [logOpen]);
+  const artifactsExpanded = artifactsPanelExpanded && allArtifacts.length > 0;
 
   useEffect(() => {
     if (!chatExpanded) return;
@@ -1291,16 +1304,40 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [artifactsFullscreen]);
 
-  // Track selection recency and transiently surface the recent-agents rail.
+  useEffect(() => {
+    if (allArtifacts.length > 0) return;
+    setArtifactsPanelExpanded(false);
+    setArtifactsFullscreen(false);
+  }, [allArtifacts.length]);
+
+  useEffect(() => {
+    setArtifactsPanelExpanded(false);
+  }, [selectedMainAgentId, commandText]);
+
+  // Transiently surface the recent-agents rail when selection changes.
   useEffect(() => {
     if (!selectedMainAgentId) return;
-    setRecentAgentIds((ids) =>
-      [selectedMainAgentId, ...ids.filter((id) => id !== selectedMainAgentId)].slice(0, 3),
-    );
     setCycleRailVisible(true);
     const t = setTimeout(() => setCycleRailVisible(false), 1500);
     return () => clearTimeout(t);
   }, [selectedMainAgentId]);
+
+  useEffect(() => {
+    if (!agentDirectory.hasActionApproval || !rightPanelExpanded) return;
+    const blockedRow = [...agentDirectory.active, ...agentDirectory.done].find(
+      (row) => row.approval.kind === "approve-action",
+    );
+    window.setTimeout(() => {
+      document
+        .querySelector(`[data-agent-row="${blockedRow?.agentId ?? ""}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 50);
+  }, [
+    agentDirectory.hasActionApproval,
+    rightPanelExpanded,
+    agentDirectory.active,
+    agentDirectory.done,
+  ]);
 
   // ⌘K — Berry switcher palette.
   useEffect(() => {
@@ -1318,9 +1355,9 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
     const { panX, panY, zoom, width, height } = viewport;
     const scale = Math.min(
       MINIMAP_WIDTH / (WORLD_VIEW_RADIUS * 2),
-      MINIMAP_HEIGHT / (WORLD_VIEW_RADIUS * 2)
+      MINIMAP_HEIGHT / (WORLD_VIEW_RADIUS * 2),
     );
-    const toMini = (wx: number, wy: number) => ({
+    const toMini = (wx: number, wy: number): { left: number; top: number } => ({
       left: MINIMAP_WIDTH / 2 + wx * scale,
       top: MINIMAP_HEIGHT / 2 + wy * scale,
     });
@@ -1370,7 +1407,27 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
       agent={agent}
       viewRect={minimap.viewRect}
       toMini={minimap.toMini}
-      onOpenLog={() => setLogOpen(true)}
+    />
+  );
+
+  // The selected Main Agent's pending approval (if any) — surfaced inline in the
+  // center command hub alongside the run lifecycle controls.
+  const selectedRow = [...agentDirectory.active, ...agentDirectory.done].find(
+    (row) => row.agentId === selectedMainAgentId,
+  );
+  const runControlStrip = (
+    <RunControlStrip
+      controls={runControls}
+      approval={selectedRow?.approval ?? { kind: "none" }}
+      approvalWorkRunId={selectedRow?.workRunId}
+      plan={selectedWorkRunPlan}
+      planStatus={selectedWorkRunPlanStatus}
+      onAdvanceWorkRun={onAdvanceWorkRun}
+      onCompleteWorkRun={onCompleteWorkRun}
+      onPauseWorkRun={onPauseWorkRun}
+      onRetryWorkRun={onRetryWorkRun}
+      onApprovePlanForWorkRun={onApprovePlanForWorkRun}
+      onResolveApproval={onResolveApproval}
     />
   );
 
@@ -1379,11 +1436,6 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
       className="pointer-events-none absolute inset-0 z-40 flex flex-col"
       aria-label="Garden HUD chrome"
     >
-      {/* Command Log overlay — secondary, ESC closes */}
-      {logOpen && (
-        <CommandLogPanel log={commandLog} onClose={() => setLogOpen(false)} />
-      )}
-
       {/* Artifacts fullscreen overlay — covers entire HUD, ESC closes */}
       {artifactsFullscreen && (
         <div className="pointer-events-auto absolute inset-4 z-50 flex flex-col overflow-hidden rounded-2xl shadow-panel hud-rise">
@@ -1415,63 +1467,38 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
       )}
 
       <div className="relative min-h-0 flex-1" aria-label="Garden view band">
-        {/* Garden directory — active garden + switcher chips (PRD 18-22) */}
-        <div className="pointer-events-auto absolute left-3 top-3 z-40 flex items-center gap-1.5 hud-drop">
-          {gardens.map((name) => (
-            <button
-              key={name}
-              type="button"
-              onClick={() => name !== gardenName && onSwitchGarden(name)}
-              className={`${PANEL} rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-wide transition-colors ${
-                name === gardenName
-                  ? "border-accent/50 text-accent"
-                  : "text-ink-faint hover:text-ink"
-              }`}
-              title={`blueberry://garden/${name}`}
-            >
-              {name}
-            </button>
-          ))}
-          {promoteTarget && onPromoteSelected && (
+        {/* Promote affordance — the Garden directory now lives in the top bar
+            (right of the URL bar); only the berry-contextual Promote stays here. */}
+        {promoteTarget && onPromoteSelected && (
+          <div className="pointer-events-auto absolute right-3 top-3 z-40">
             <button
               type="button"
               onClick={onPromoteSelected}
-              className={`${PANEL} hud-fade rounded-full border-accent/40 px-3 py-1 font-mono text-[10px] uppercase tracking-wide text-accent transition-colors hover:bg-accent/10`}
+              className={`${PANEL} hud-fade rounded-full border-accent/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-accent transition-colors hover:bg-accent/10`}
               title={`Move the selected Berry into ${promoteTarget}`}
             >
               Promote → {promoteTarget}
             </button>
-          )}
-        </div>
+          </div>
+        )}
         {/* Agents right column — hidden rail (hover / cycle) or expanded roster */}
         {rightPanelExpanded ? (
           <div
-            className="pointer-events-none absolute right-3 top-1/2 z-40 flex max-h-full -translate-y-1/2 flex-col"
+            className="pointer-events-none absolute bottom-0 right-0 top-0 z-40 flex flex-col"
             style={{ width: GARDEN_RIGHT_HUD_WIDTH }}
             aria-label="Garden right HUD"
           >
             <MainAgentRosterPanel
-              roster={mainAgentRoster}
+              directory={agentDirectory}
               selectedMainAgentId={selectedMainAgentId}
-              scope={mainAgentCycleScope}
-              onScopeChange={onMainAgentCycleScopeChange}
               onSelectMainAgent={onSelectMainAgent}
-              onNewCommand={onNewCommand}
               onMarkCommandDone={onMarkCommandDone}
               onReopenCommand={onReopenCommand}
+              onApprovePlanForWorkRun={onApprovePlanForWorkRun}
+              onResolveApproval={onResolveApproval}
               rosterCycleHint={rosterCycleHint}
               onDismissRosterHint={onDismissRosterHint}
               berryCount={berries.length}
-              plannedWorkRunTitle={plannedWorkRunTitle}
-              plannedWorkRunPlan={plannedWorkRunPlan}
-              onEditPlan={onEditPlan}
-              onApprovePlan={onApprovePlan}
-              showWorkRunControls={showWorkRunControls}
-              onAdvanceWorkRun={onAdvanceWorkRun}
-              onCompleteWorkRun={onCompleteWorkRun}
-              workRunStatus={workRunStatus}
-              onPauseWorkRun={onPauseWorkRun}
-              onRetryWorkRun={onRetryWorkRun}
               onToggleExpanded={() => setRightPanelExpanded(false)}
             />
           </div>
@@ -1483,42 +1510,47 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
               onMouseEnter={() => setRailHovered(true)}
               aria-hidden
             />
-            {(railHovered || cycleRailVisible) && mainAgentRoster.length > 0 && (
-              <div
-                className="pointer-events-auto absolute right-2 top-1/2 z-40 -translate-y-1/2"
-                onMouseEnter={() => setRailHovered(true)}
-                onMouseLeave={() => setRailHovered(false)}
-              >
-                <AgentRail
-                  entries={
-                    railHovered
-                      ? mainAgentRoster
-                      : // Cycling: only the most recently selected agents.
-                        recentAgentIds
-                          .map((id) =>
-                            mainAgentRoster.find((e) => e.agent.id === id),
-                          )
-                          .filter(
-                            (e): e is MainAgentRosterEntry => Boolean(e),
-                          )
-                  }
-                  selectedMainAgentId={selectedMainAgentId}
-                  onSelect={onSelectMainAgent}
-                  onExpand={() => setRightPanelExpanded(true)}
-                  indexOf={(id) =>
-                    mainAgentRoster.findIndex((e) => e.agent.id === id)
-                  }
-                />
-              </div>
-            )}
+            {(railHovered || cycleRailVisible) &&
+              mainAgentRoster.length > 0 && (
+                <div
+                  className="pointer-events-auto absolute right-0 top-1/2 z-40 -translate-y-1/2"
+                  onMouseEnter={() => setRailHovered(true)}
+                  onMouseLeave={() => setRailHovered(false)}
+                >
+                  <AgentRail
+                    entries={
+                      railHovered
+                        ? mainAgentRoster
+                        : // Cycling: only active, recently selected agents.
+                          recentAgentIds
+                            .map((id) =>
+                              activeMainAgentRoster.find(
+                                (e) => e.agent.id === id,
+                              ),
+                            )
+                            .filter((e): e is MainAgentRosterEntry =>
+                              Boolean(e),
+                            )
+                    }
+                    directory={agentDirectory}
+                    selectedMainAgentId={selectedMainAgentId}
+                    onSelect={onSelectMainAgent}
+                    onExpand={() => setRightPanelExpanded(true)}
+                  />
+                </div>
+              )}
           </>
         )}
 
         {/* Artifacts panel overlay — floats above bottom bar from bottom-right */}
-        {artifactsPanelExpanded && !artifactsFullscreen && (
+        {artifactsExpanded && !artifactsFullscreen && (
           <div
-            className="pointer-events-none absolute bottom-2 right-3 z-40 hud-rise"
-            style={{ width: LEFT_SIDE_WIDTH }}
+            className="pointer-events-none absolute right-4 z-50 hud-rise"
+            style={{
+              bottom: "calc(88px + 0.75rem)",
+              width: "min(27rem, calc(100vw - 2rem))",
+              maxHeight: "min(26rem, calc(100% - 7rem))",
+            }}
           >
             <ArtifactRosterPanel
               artifacts={allArtifacts}
@@ -1565,15 +1597,17 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
               >
                 <ScrollArea className="min-h-0 flex-1">
                   <div className="space-y-6 px-8 py-6">
-                    {MOCK_CHAT_HISTORY.map((message, index) => (
-                      <ChatMessage
-                        key={`mock-${index}`}
-                        role={message.role}
-                        text={message.text}
-                        faded={index < MOCK_CHAT_HISTORY.length - 2}
-                      />
-                    ))}
-                    {latestAgentReply && (
+                    {commandLog.length === 0 && !latestAgentReply ? (
+                      <p className="py-8 text-center text-sm text-ink-faint">
+                        No commands yet — command the garden below.
+                      </p>
+                    ) : (
+                      commandLog.map((entry) => (
+                        <CommandTurn key={entry.commandId} entry={entry} />
+                      ))
+                    )}
+                    {/* Live in-progress reply, only until it lands as a turn. */}
+                    {latestAgentReply && !commandLog.at(-1)?.response && (
                       <ChatMessage role="agent" text={latestAgentReply} />
                     )}
                   </div>
@@ -1585,10 +1619,12 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
                     upgradeable={upgradeable}
                     onUpgradeCommand={onUpgradeCommand}
                   />
+                  {runControlStrip}
                   <CommandInput
                     commandText={commandText}
                     onCommandTextChange={onCommandTextChange}
                     onSubmit={onSubmit}
+                    onNewCommand={onNewCommand}
                   />
                 </div>
               </div>
@@ -1599,7 +1635,9 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
 
       <div
         className="pointer-events-none grid w-full shrink-0 items-center border-t border-line/10"
-        style={{ gridTemplateColumns: `${LEFT_SIDE_WIDTH} 1fr ${LEFT_SIDE_WIDTH}` }}
+        style={{
+          gridTemplateColumns: `${LEFT_SIDE_WIDTH} 1fr ${LEFT_SIDE_WIDTH}`,
+        }}
         aria-label="Garden bottom HUD"
       >
         {left}
@@ -1610,6 +1648,8 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
               commandText={commandText}
               onCommandTextChange={onCommandTextChange}
               onSubmit={onSubmit}
+              onNewCommand={onNewCommand}
+              runControlStrip={runControlStrip}
               expandButton={expandButton}
               routeChoice={
                 <RouteChoiceRow
@@ -1622,47 +1662,45 @@ export const GardenHud: React.FC<GardenHudProps> = (props) => {
             />
           )}
         </div>
-        <ArtifactsShelf
-          artifacts={bottomArtifacts}
-          agentLabel={bottomArtifactsLabel}
-          onSelectArtifact={onSelectArtifact}
-          onOpenLedger={onOpenLedger}
-          panelExpanded={artifactsPanelExpanded}
-          onTogglePanel={() => setArtifactsPanelExpanded((v) => !v)}
-        />
+        {artifactsExpanded ? (
+          <div
+            className={`${PANEL} flex h-[88px] shrink-0 items-center justify-between border-b-0 border-l border-r-0 border-t-0 px-4`}
+            style={{ width: LEFT_SIDE_WIDTH }}
+            aria-label="Artifacts shelf"
+          >
+            <div className="min-w-0">
+              <p className={SECTION_LABEL}>Artifacts</p>
+              <p className="mt-1 truncate text-xs text-ink-faint">
+                Expanded above
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setArtifactsPanelExpanded(false)}
+              className="shrink-0 rounded-lg border border-line/12 bg-surface-2 p-1.5 text-ink-faint transition-colors hover:border-accent/40 hover:text-ink"
+              aria-label="Collapse artifacts"
+            >
+              <ChevronDown className="size-3.5" />
+            </button>
+          </div>
+        ) : (
+          <ArtifactsShelf
+            artifacts={bottomArtifacts}
+            agentLabel={bottomArtifactsLabel}
+            onSelectArtifact={onSelectArtifact}
+            onOpenLedger={onOpenLedger}
+            panelExpanded={artifactsExpanded}
+            onTogglePanel={() => setArtifactsPanelExpanded((v) => !v)}
+          />
+        )}
       </div>
     </div>
   );
 };
 
-export interface FadedGardenEcho {
-  id: string;
-  role: "user" | "agent";
-  text: string;
-  x: number;
-  y: number;
-}
-
-export function fadeMessageOntoGarden(
-  messages: FadedGardenEcho[],
-  nextIndex: number
-): FadedGardenEcho[] {
-  const angle = nextIndex * 2.1 - Math.PI / 2;
-  const radius = 160 + nextIndex * 55;
-  return messages.map((message, index) => {
-    const scatterAngle = angle + index * 0.35;
-    const scatterRadius = radius + index * 18;
-    return {
-      ...message,
-      x: Math.cos(scatterAngle) * scatterRadius,
-      y: Math.sin(scatterAngle) * scatterRadius,
-    };
-  });
-}
-
 export function replyForCommand(
   route: "quick" | "work-run",
-  agentLabel?: string
+  agentLabel?: string,
 ): string {
   if (agentLabel) return agentLabel;
   return route === "quick"

@@ -160,6 +160,27 @@ body {
   animation: pulse-ring 2s ease-out infinite;
 }
 
+/* Telemetry: blocker warning ring breathing on a blocked Berry. */
+@keyframes blocker-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px rgb(var(--tm-blocker) / 0.9);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(var(--tm-blocker) / 0.45);
+  }
+}
+
+.blocker-ring {
+  animation: blocker-ring 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blocker-ring {
+    animation: none;
+  }
+}
+
 /* Telemetry: observation shimmer sweeping across a scanned Berry. */
 @keyframes ring-scan {
   0% {
@@ -187,6 +208,150 @@ body {
 
 .companion-bob {
   animation: companion-bob 3s ease-in-out infinite;
+}
+
+/* Placeholder companion: per-telemetry-state poses & motion. The companion
+   visibly animates through every telemetry option (walking / looking / typing /
+   thinking / cheer) even before video clips are bundled. fill-box keeps each
+   element's transform-origin local so rotations/scales stay put. */
+.cmp * {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Walking — a gentle waddle with alternating legs. */
+@keyframes cmp-waddle {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+.cmp-walking .cmp-torso {
+  transform-origin: 50% 90%;
+  animation: cmp-waddle 0.6s ease-in-out infinite;
+}
+@keyframes cmp-leg-a {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+@keyframes cmp-leg-b {
+  0%,
+  100% {
+    transform: translateY(-5px);
+  }
+  50% {
+    transform: translateY(0);
+  }
+}
+.cmp-walking .cmp-leg-l {
+  animation: cmp-leg-a 0.6s ease-in-out infinite;
+}
+.cmp-walking .cmp-leg-r {
+  animation: cmp-leg-b 0.6s ease-in-out infinite;
+}
+
+/* Typing — hands tapping out of phase. */
+@keyframes cmp-tap {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+.cmp-typing .cmp-hand-l {
+  animation: cmp-tap 0.28s ease-in-out infinite;
+}
+.cmp-typing .cmp-hand-r {
+  animation: cmp-tap 0.28s ease-in-out infinite 0.14s;
+}
+
+/* Looking — magnifier sweeping across the field. */
+@keyframes cmp-scan-sweep {
+  0%,
+  100% {
+    transform: translate(-6px, 2px);
+  }
+  50% {
+    transform: translate(5px, -2px);
+  }
+}
+.cmp-looking .cmp-scan {
+  animation: cmp-scan-sweep 1.4s ease-in-out infinite;
+}
+
+/* Thinking — thought dots pulsing in sequence. */
+@keyframes cmp-dot-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.2;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+.cmp-thinking .cmp-dot-1 {
+  animation: cmp-dot-pulse 1.4s ease-in-out infinite;
+}
+.cmp-thinking .cmp-dot-2 {
+  animation: cmp-dot-pulse 1.4s ease-in-out infinite 0.2s;
+}
+.cmp-thinking .cmp-dot-3 {
+  animation: cmp-dot-pulse 1.4s ease-in-out infinite 0.4s;
+}
+
+/* Cheer — a happy bounce with twinkling sparkles. */
+@keyframes cmp-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+.cmp-cheer .cmp-torso {
+  animation: cmp-bounce 0.5s ease-in-out infinite;
+}
+@keyframes cmp-twinkle {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+.cmp-cheer .cmp-spark {
+  animation: cmp-twinkle 0.7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cmp-walking .cmp-torso,
+  .cmp-walking .cmp-leg-l,
+  .cmp-walking .cmp-leg-r,
+  .cmp-typing .cmp-hand-l,
+  .cmp-typing .cmp-hand-r,
+  .cmp-looking .cmp-scan,
+  .cmp-thinking .cmp-dot-1,
+  .cmp-thinking .cmp-dot-2,
+  .cmp-thinking .cmp-dot-3,
+  .cmp-cheer .cmp-torso,
+  .cmp-cheer .cmp-spark {
+    animation: none;
+  }
 }
 
 /* Blocked agent: restrained shake (no glow). */

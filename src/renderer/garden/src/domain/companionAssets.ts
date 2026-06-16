@@ -2,9 +2,8 @@
 import type { CompanionClip } from "./telemetryVisuals";
 
 /**
- * Companion clips are pre-rendered, transparent-background video loops — the
- * same technique Strawberry uses (a looping <video> with a webp poster). One
- * clip per state, named `{character}-{state}` (e.g. blue-idle.webm).
+ * Companion clips are pre-rendered, transparent-background video loops. One clip
+ * per state, named `{character}-{state}` (e.g. blue-idle.webm).
  *
  * Drop files into:
  *   assets/companions/{character}-{state}.webm   (VP9 alpha — Chromium/Electron)
@@ -39,7 +38,10 @@ const posterFiles = import.meta.glob("../assets/companions/posters/*.webp", {
 const byBasename = (files: UrlMap): UrlMap => {
   const out: UrlMap = {};
   for (const [path, url] of Object.entries(files)) {
-    const base = path.split("/").pop()?.replace(/\.[^.]+$/, "");
+    const base = path
+      .split("/")
+      .pop()
+      ?.replace(/\.[^.]+$/, "");
     if (base) out[base] = url;
   }
   return out;
@@ -73,7 +75,7 @@ const FALLBACK: Record<CompanionClip, CompanionClip[]> = {
  */
 export const getCompanionSources = (
   clip: CompanionClip,
-  character = "blue"
+  character = "blue",
 ): CompanionSources | null => {
   for (const state of [clip, ...FALLBACK[clip]]) {
     const key = `${character}-${state}`;
