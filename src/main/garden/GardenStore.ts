@@ -159,8 +159,10 @@ export class GardenStore {
       const raw = await readFile(this.persistPath, "utf-8");
       const parsed = JSON.parse(raw) as { state?: GardenState };
       if (!parsed.state) return false;
-      this.state = await pruneMissingArtifactBerries(rehydrate(parsed.state));
+      const rehydrated = rehydrate(parsed.state);
+      this.state = await pruneMissingArtifactBerries(rehydrated);
       this.broadcast();
+      if (this.state !== rehydrated) await this.persistNow();
       return true;
     } catch {
       // No file yet (first run) or unreadable — start fresh.
